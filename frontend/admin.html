@@ -213,6 +213,37 @@
         }
         .status { margin-top: 8px; font-weight: 750; color: var(--green); }
         .status.error { color: var(--red); }
+        .login-panel {
+            min-height: 100vh;
+            display: grid;
+            place-items: center;
+            padding: 24px;
+        }
+        .login-card {
+            width: min(420px, 100%);
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 22px;
+            box-shadow: var(--shadow);
+        }
+        .login-card h1 {
+            font-size: 1.35rem;
+            margin-bottom: 8px;
+        }
+        .login-card form {
+            display: grid;
+            gap: 10px;
+            margin-top: 16px;
+        }
+        .login-card input {
+            width: 100%;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 11px;
+            font-size: 1rem;
+        }
+        [hidden] { display: none !important; }
 
         @media (max-width: 760px) {
             .page { width: min(800px, calc(100% - 24px)); margin-top: 14px; }
@@ -225,7 +256,19 @@
     </style>
 </head>
 <body>
-    <main class="page">
+    <section id="admin-login" class="login-panel">
+        <div class="login-card">
+            <h1>관리자 로그인</h1>
+            <p>관리자 토큰을 입력해야 설정과 사용량을 확인할 수 있습니다.</p>
+            <form id="admin-login-form">
+                <input id="admin-token-input" type="password" autocomplete="current-password" placeholder="관리자 토큰">
+                <button id="btn-login" class="primary" type="submit">로그인</button>
+            </form>
+            <p id="login-message" class="status"></p>
+        </div>
+    </section>
+
+    <main id="admin-app" class="page" hidden>
         <header class="topbar">
             <div>
                 <h1>하마터면 딥페이크 체험 서비스 관리자</h1>
@@ -235,6 +278,7 @@
                 <button id="btn-refresh">새로고침</button>
                 <button id="btn-apply" class="primary" disabled>LLM 적용</button>
                 <button id="btn-voice-apply" class="primary" disabled>음성 적용</button>
+                <button id="btn-logout">로그아웃</button>
             </div>
         </header>
 
@@ -376,19 +420,60 @@
         };
         const $ = (id) => document.getElementById(id);
 
-        function initAdminToken() {
-            const params = new URLSearchParams(window.location.search);
-            const token = params.get('token') || localStorage.getItem('adminToken') || '';
-            if (token) {
-                localStorage.setItem('adminToken', token);
-                state.adminToken = token;
-            }
-        }
-
         function adminFetch(url, options = {}) {
             const headers = new Headers(options.headers || {});
             if (state.adminToken) headers.set('x-admin-token', state.adminToken);
             return fetch(url, { ...options, headers });
+        }
+
+        function setLoginMessage(message, isError = false) {
+            $('login-message').textContent = message;
+            $('login-message').className = `status${isError ? ' error' : ''}`;
+        }
+
+        function showAdminApp() {
+            $('admin-login').hidden = true;
+            $('admin-app').hidden = false;
+        }
+
+        function showAdminLogin() {
+            $('admin-login').hidden = false;
+            $('admin-app').hidden = true;
+            $('admin-token-input').focus();
+        }
+
+        async function verifyAdminToken(token) {
+            state.adminToken = token.trim();
+            const res = await adminFetch('/api/admin/session');
+            if (!res.ok) {
+                state.adminToken = '';
+                throw new Error('관리자 토큰이 올바르지 않습니다.');
+            }
+            sessionStorage.setItem('adminToken', state.adminToken);
+            showAdminApp();
+            await refreshAll();
+        }
+
+        async function initAdminSession() {
+            const savedToken = sessionStorage.getItem('adminToken') || '';
+            if (!savedToken) {
+                showAdminLogin();
+                return;
+            }
+
+            try {
+                await verifyAdminToken(savedToken);
+            } catch (error) {
+                sessionStorage.removeItem('adminToken');
+                setLoginMessage(error.message, true);
+                showAdminLogin();
+            }
+        }
+
+        function logoutAdmin() {
+            state.adminToken = '';
+            sessionStorage.removeItem('adminToken');
+            showAdminLogin();
         }
 
         function ms(value) {
@@ -725,9 +810,30 @@
             });
         });
 
+        $('admin-login-form').addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const token = $('admin-token-input').value;
+            if (!token.trim()) {
+                setLoginMessage('관리자 토큰을 입력하세요.', true);
+                return;
+            }
+            $('btn-login').disabled = true;
+            setLoginMessage('로그인 확인 중입니다.');
+            try {
+                await verifyAdminToken(token);
+                $('admin-token-input').value = '';
+                setLoginMessage('');
+            } catch (error) {
+                sessionStorage.removeItem('adminToken');
+                setLoginMessage(error.message, true);
+            } finally {
+                $('btn-login').disabled = false;
+            }
+        });
         $('btn-refresh').addEventListener('click', () => refreshAll().catch(showError));
         $('btn-apply').addEventListener('click', () => applySelection().catch(showError));
         $('btn-voice-apply').addEventListener('click', () => applyVoiceSelection().catch(showError));
+        $('btn-logout').addEventListener('click', logoutAdmin);
         $('voice-clone-model').addEventListener('change', () => {
             state.selectedVoice = {
                 cloneModel: $('voice-clone-model').value.trim(),
@@ -748,8 +854,11 @@
             $('status-message').className = 'status error';
         }
 
-        initAdminToken();
-        refreshAll().catch(showError);
+        initAdminSession().catch((error) => {
+            sessionStorage.removeItem('adminToken');
+            setLoginMessage(error.message, true);
+            showAdminLogin();
+        });
     </script>
 </body>
 </html>

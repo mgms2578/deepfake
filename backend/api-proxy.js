@@ -848,8 +848,12 @@ app.get('/api/health', async (req, res) => {
     });
 });
 
-app.get('/admin.html', requireAdmin, (req, res) => {
+app.get('/admin.html', (req, res) => {
     res.sendFile(path.join(__dirname, '../frontend/admin.html'));
+});
+
+app.get('/api/admin/session', requireAdmin, (req, res) => {
+    res.json({ success: true });
 });
 
 app.get('/api/admin/llm/settings', requireAdmin, (req, res) => {
