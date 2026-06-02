@@ -163,7 +163,7 @@ class App {
         // TTS 완료 콜백은 새로 생성하는 player에 붙여줄 예정
         this.ttsClient.onComplete = () => this._onTTSComplete();
         this.ttsClient.onFirstPacket = () => this.markLatency('tts_first_packet');
-        this.ttsClient.onPlayStart = () => this.markLatency('audio_play_start');
+        this.ttsClient.onPlayStart = () => this.handleFirstAudioPlay();
         this.ttsClient.onEvent = (event) => this.logClientEvent(event);
         this.ttsClient.onVolume = (level) => {
             if (this.voiceMode && this.voiceState === VS.SPEAKING) this.updateWaveformLevel('voice-waveform', level);
@@ -416,11 +416,22 @@ class App {
 
     markLatency(label, extra = {}) {
         const trace = this.latencyTrace;
-        if (!trace || trace.marks[label] !== undefined) return;
+        if (!trace || trace.marks[label] !== undefined) return false;
         const elapsed = Math.round(performance.now() - trace.startedAt);
         trace.marks[label] = elapsed;
         console.log(`[Latency][turn=${trace.turnId}] ${label}=${elapsed}ms`, extra);
         this.updateLatencyElement(trace);
+        return true;
+    }
+
+    handleFirstAudioPlay() {
+        if (!this.markLatency('audio_play_start')) return;
+        this.logClientEvent({
+            step: 'CLIENT_FIRST_AUDIO_PLAY',
+            status: 'SUCCESS',
+            sessionId: this.sessionId,
+            turnId: this.currentTurnId
+        });
     }
 
     attachLatencyElement(messageEl, turnId) {
@@ -452,12 +463,12 @@ class App {
         const items = [
             ['전송', 'user_send'],
             ['분류', 'classify_done'],
-            ['응답 시작', 'response_llm_first_token'],
+            ['첫 글자 출력', 'client_first_text_rendered'],
             ['첫문장', 'first_sentence_ready'],
             ['응답 완료', 'llm_done'],
             ['TTS 요청', 'tts_first_request'],
             ['TTS 응답', 'tts_first_packet'],
-            ['재생', 'audio_play_start']
+            ['첫 음성 재생', 'audio_play_start']
         ];
         trace.element.textContent = items
             .map(([label, key]) => `${label} ${marks[key] ?? '-'}ms`)
@@ -1072,6 +1083,7 @@ class App {
             let ttsBuffer = '';
             let buffer = '';
             let firstToken = true;
+            let firstTextRendered = false;
             let firstSentenceSent = false;
             let intermediateChunkSent = false;
             let firstTtsRequestSent = false;
@@ -1174,6 +1186,21 @@ class App {
                             fullContent += visibleText;
                             updateTTSBuffer(visibleText);
                             this.setMessageTextPreservingLatency(loadingDiv, fullContent, myTurnId);
+                            if (!firstTextRendered) {
+                                firstTextRendered = true;
+                                if (this.markLatency('client_first_text_rendered', { textLength: fullContent.length })) {
+                                    this.logClientEvent({
+                                        step: 'CLIENT_FIRST_TEXT_RENDERED',
+                                        status: 'SUCCESS',
+                                        sessionId: this.sessionId,
+                                        turnId: myTurnId,
+                                        details: {
+                                            textLength: fullContent.length,
+                                            preview: fullContent.slice(0, 80)
+                                        }
+                                    });
+                                }
+                            }
                             this.scrollMessagesToBottom();
                             // 음성 모드: 1턴 표시 업데이트
                             if (this.voiceMode) {

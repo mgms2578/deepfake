@@ -789,6 +789,10 @@ async function getUsageSummary() {
     const errors = [];
     const llmDoneLatencies = [];
     const firstTokenLatencies = [];
+    const firstTextLatencies = [];
+    const firstAudioLatencies = [];
+    const firstTextByTurn = new Map();
+    const firstAudioByTurn = new Map();
     const recent = [];
 
     for (const entry of entries) {
@@ -812,6 +816,17 @@ async function getUsageSummary() {
         if (entry.status === 'ERROR') errors.push(entry);
         if (entry.step === 'LLM_STREAM_DONE' || entry.step === 'RESPONSE_LLM_DONE' || entry.step === 'REQUEST_COMPLETE') llmDoneLatencies.push(Number(entry.latency || 0));
         if (entry.step === 'LLM_FIRST_TOKEN' || entry.step === 'RESPONSE_LLM_FIRST_TOKEN') firstTokenLatencies.push(Number(entry.latency || 0));
+        const turnKey = entry.sessionId && entry.turnId !== undefined ? `${entry.sessionId}:${entry.turnId}` : null;
+        if (entry.step === 'CLIENT_FIRST_TEXT_RENDERED') {
+            const latency = Number(entry.latency || 0);
+            firstTextLatencies.push(latency);
+            if (turnKey) firstTextByTurn.set(turnKey, latency);
+        }
+        if (entry.step === 'CLIENT_FIRST_AUDIO_PLAY') {
+            const latency = Number(entry.latency || 0);
+            firstAudioLatencies.push(latency);
+            if (turnKey) firstAudioByTurn.set(turnKey, latency);
+        }
         if ([
             'REQUEST_START',
             'CLASSIFY_REQUEST',
@@ -819,11 +834,21 @@ async function getUsageSummary() {
             'RESPONSE_LLM_REQUEST',
             'RESPONSE_LLM_FIRST_TOKEN',
             'RESPONSE_LLM_DONE',
+            'CLIENT_FIRST_TEXT_RENDERED',
+            'CLIENT_FIRST_AUDIO_PLAY',
             'LLM_STREAM_DONE',
             'CLASSIFY_FAILED',
             'REQUEST_FAILED'
         ].includes(entry.step)) {
             recent.push(entry);
+        }
+    }
+
+    const textToAudioLatencies = [];
+    for (const [turnKey, firstText] of firstTextByTurn.entries()) {
+        const firstAudio = firstAudioByTurn.get(turnKey);
+        if (firstAudio !== undefined && firstAudio >= firstText) {
+            textToAudioLatencies.push(firstAudio - firstText);
         }
     }
 
@@ -844,6 +869,9 @@ async function getUsageSummary() {
         byCategory,
         avgFirstTokenMs: average(firstTokenLatencies),
         avgLlmDoneMs: average(llmDoneLatencies),
+        avgFirstTextRenderedMs: average(firstTextLatencies),
+        avgFirstAudioPlayMs: average(firstAudioLatencies),
+        avgTextToAudioMs: average(textToAudioLatencies),
         errorCount: errors.length,
         recent: recent.slice(-20).reverse(),
         voiceStats: await voiceRegistry.getStats()

@@ -343,7 +343,7 @@
             <div class="card" style="margin-top:12px;">
                 <h2>대화 분류 통계</h2>
                 <div id="category-stats"></div>
-                <p class="metric-sub">성능 지표: 평균 첫 토큰 <span id="metric-first-token">-</span>, 평균 LLM 완료 <span id="metric-llm-done">-</span>, 요청 <span id="metric-requests">-</span>, 이벤트 <span id="metric-events">-</span></p>
+                <p class="metric-sub">성능 지표: 평균 첫 글자 출력 <span id="metric-first-text">-</span>, 평균 첫 음성 재생 <span id="metric-first-audio">-</span>, 글자→음성 <span id="metric-text-to-audio">-</span>, 요청 <span id="metric-requests">-</span>, 이벤트 <span id="metric-events">-</span></p>
             </div>
         </section>
 
@@ -545,8 +545,9 @@
             $('metric-active-sessions').textContent = `진행 중 ${usage.activeMemorySessions ?? 0}`;
             $('metric-requests').textContent = usage.totalRequests ?? 0;
             $('metric-events').textContent = usage.totalEvents ?? 0;
-            $('metric-first-token').textContent = ms(usage.avgFirstTokenMs);
-            $('metric-llm-done').textContent = ms(usage.avgLlmDoneMs);
+            $('metric-first-text').textContent = ms(usage.avgFirstTextRenderedMs);
+            $('metric-first-audio').textContent = ms(usage.avgFirstAudioPlayMs);
+            $('metric-text-to-audio').textContent = ms(usage.avgTextToAudioMs);
             state.usageSeries = usage.usageSeries || null;
             renderUsageChart();
 
