@@ -16,6 +16,9 @@ class App {
         this.sessionId = null;
         this.openingMessage = null;
         this.currentScreen = 'screen-intro';
+        this.historyEnabled = false;
+        this.isRestoringHistory = false;
+        this.ignoreNextPopState = false;
         this.returnUrl = this.resolveReturnUrl();
         this.pageTitles = {
             'screen-intro': '음성 딥페이크 체험',
@@ -229,12 +232,31 @@ class App {
 
     installBackNavigationGuard() {
         if (!history.pushState) return;
-        history.replaceState({ deepvoiceEntry: true }, '', window.location.href);
-        history.pushState({ deepvoiceGuard: true }, '', window.location.href);
-        window.addEventListener('popstate', () => this.handleBrowserBack());
+        this.historyEnabled = true;
+        history.replaceState({ deepvoice: true, screen: this.currentScreen, entry: true }, '', window.location.href);
+        history.pushState({ deepvoice: true, screen: this.currentScreen }, '', window.location.href);
+        window.addEventListener('popstate', (event) => this.handleBrowserBack(event));
     }
 
-    async handleBrowserBack() {
+    async handleBrowserBack(event) {
+        const state = event.state || {};
+        const consentModal = document.getElementById('modal-consent');
+        const consentOpen = consentModal && consentModal.style.display === 'flex';
+
+        if (this.ignoreNextPopState) {
+            this.ignoreNextPopState = false;
+            return;
+        }
+
+        if (state.deepvoiceModal === 'modal-consent') {
+            this.showModal('modal-consent', { skipHistory: true });
+            return;
+        }
+        if (consentOpen) {
+            this.hideModal('modal-consent', { skipHistory: true });
+            return;
+        }
+
         if (this.currentScreen === 'screen-intro') {
             alert('하마터면 서비스로 돌아갑니다.');
             this.returnToHost();
@@ -245,7 +267,7 @@ class App {
         if (shouldExit) {
             await this.endExperience();
         } else {
-            history.pushState({ deepvoiceGuard: true }, '', window.location.href);
+            this.pushScreenHistory(this.currentScreen);
         }
     }
 
@@ -272,11 +294,12 @@ class App {
     }
 
     // ─── 화면 전환 ───
-    showScreen(id) {
+    showScreen(id, options = {}) {
         this.screens.forEach(s => s.classList.remove('active'));
         document.getElementById(id).classList.add('active');
         this.currentScreen = id;
         this.updateServiceHeader();
+        if (!options.skipHistory) this.pushScreenHistory(id);
 
         // 전화벨 소리 제어
         const ringtone = document.getElementById('ringtone-audio');
@@ -289,8 +312,30 @@ class App {
             }
         }
     }
-    showModal(id) { document.getElementById(id).style.display = 'flex'; }
-    hideModal(id) { document.getElementById(id).style.display = 'none'; }
+    pushScreenHistory(screenId) {
+        if (!this.historyEnabled || this.isRestoringHistory) return;
+        const current = history.state || {};
+        if (current.deepvoice && current.screen === screenId && !current.deepvoiceModal) return;
+        history.pushState({ deepvoice: true, screen: screenId }, '', window.location.href);
+    }
+
+    pushModalHistory(modalId) {
+        if (!this.historyEnabled || this.isRestoringHistory) return;
+        history.pushState({ deepvoice: true, screen: this.currentScreen, deepvoiceModal: modalId }, '', window.location.href);
+    }
+
+    showModal(id, options = {}) {
+        document.getElementById(id).style.display = 'flex';
+        if (!options.skipHistory && id === 'modal-consent') this.pushModalHistory(id);
+    }
+
+    hideModal(id, options = {}) {
+        document.getElementById(id).style.display = 'none';
+        if (!options.skipHistory && id === 'modal-consent' && history.state?.deepvoiceModal === id) {
+            this.ignoreNextPopState = true;
+            history.back();
+        }
+    }
 
     resetInactivityTimer() {
         if (this.inactivityTimer) clearTimeout(this.inactivityTimer);
