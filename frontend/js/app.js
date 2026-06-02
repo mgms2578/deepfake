@@ -175,8 +175,8 @@ class App {
         document.getElementById('btn-service-back').onclick = () => this.handleServiceBack();
         document.getElementById('btn-service-exit').onclick = () => this.confirmExperienceExit();
         document.getElementById('btn-start-experience').onclick = () => this.showModal('modal-consent');
-        document.getElementById('btn-consent-back').onclick = () => this.hideModal('modal-consent');
-        document.getElementById('btn-consent-decline').onclick = () => this.hideModal('modal-consent');
+        document.getElementById('btn-consent-back').onclick = () => this.closeConsentModal();
+        document.getElementById('btn-consent-decline').onclick = () => this.closeConsentModal();
         document.getElementById('btn-consent-accept').onclick = () => this.startExperience();
         document.querySelectorAll('[data-exit-experience]').forEach(btn => {
             btn.onclick = () => this.endExperience();
@@ -258,7 +258,6 @@ class App {
         }
 
         if (this.currentScreen === 'screen-intro') {
-            alert('하마터면 서비스로 돌아갑니다.');
             this.returnToHost();
             return;
         }
@@ -273,7 +272,6 @@ class App {
 
     async handleServiceBack() {
         if (this.currentScreen === 'screen-intro') {
-            alert('하마터면 서비스로 돌아갑니다.');
             this.returnToHost();
             return;
         }
@@ -335,6 +333,12 @@ class App {
             this.ignoreNextPopState = true;
             history.back();
         }
+    }
+
+    closeConsentModal() {
+        this.hideModal('modal-consent', { skipHistory: true });
+        this.currentScreen = 'screen-intro';
+        this.updateServiceHeader();
     }
 
     resetInactivityTimer() {
