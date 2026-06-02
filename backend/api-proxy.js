@@ -1255,7 +1255,7 @@ app.post('/api/sessions/:id/audio', upload.single('audio'), async (req, res) => 
         const clonePayload = {
             file_id: file_id,
             voice_id: targetVoiceId,
-            need_noise_reduction: false,
+            need_noise_reduction: true,
             need_volume_normalization: false,
             model: voiceSettings.cloneModel,
             language_boost: "Korean"
