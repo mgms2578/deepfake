@@ -1501,4 +1501,5 @@ app.use((error, req, res, next) => {
 });
 
 app.use(express.static(path.join(__dirname, '../frontend')));
-server.listen(process.env.PORT || 3001, () => console.log(`🚀 Phishing Backend running on http://localhost:${3001}`));
+const PORT = process.env.PORT || 3001;
+server.listen(PORT, () => console.log(`🚀 Phishing Backend running on port ${PORT}`));
