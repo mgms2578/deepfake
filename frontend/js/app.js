@@ -15,6 +15,7 @@ class App {
     constructor() {
         this.sessionId = null;
         this.openingMessage = null;
+        this.openingTurnId = null;
         this.currentScreen = 'screen-intro';
         this.historyEnabled = false;
         this.isRestoringHistory = false;
@@ -67,6 +68,7 @@ class App {
         this.llmAbortController = null;
         this.activeRequestCount = 0;
         this.latencyTrace = null;
+        this.openingTtsPrepareStartedAt = null;
         this.pendingScenarioEnd = null;
         this.scenarioResultShown = false;
 
@@ -941,7 +943,19 @@ class App {
                 : '목소리 생성 완료! ✅';
             text.style.color = mode === 'fallback' ? 'var(--danger)' : 'var(--primary)';
         }
-        setTimeout(() => this.showScreen('screen-incoming-call'), mode === 'fallback' ? 1400 : 800);
+        setTimeout(() => {
+            this.showScreen('screen-incoming-call');
+            this.prepareOpeningTTS();
+        }, mode === 'fallback' ? 1400 : 800);
+    }
+
+    prepareOpeningTTS() {
+        if (!this.sessionId || !this.openingMessage) return;
+        if (!this.openingTurnId) this.openingTurnId = ++this.nextTurnId;
+
+        this.openingTtsPrepareStartedAt = performance.now();
+        this.ttsClient.prepare(this.openingMessage, this.sessionId, this.openingTurnId)
+            .catch(error => console.warn('[TTS] opening prepare failed:', error));
     }
 
     getCloningErrorMessage(error, originalBlob) {
@@ -981,7 +995,9 @@ class App {
 
     // ─── 전화 수락 ───
     async acceptCall() {
-        this.ttsClient.unlock();
+        const hasPreparedOpening = this.openingTurnId
+            && this.ttsClient.hasPrepared?.(this.sessionId, this.openingTurnId);
+        if (!hasPreparedOpening) this.ttsClient.unlock();
         this.showScreen('screen-chat');
         const firstMsg = this.openingMessage || '엄마… 나 민준인데 큰일 났어. 지금 한빛종합병원 응급실이야.';
         this.addMessage('assistant', firstMsg);
@@ -990,8 +1006,17 @@ class App {
             if (lastMessageEl) lastMessageEl.innerText = firstMsg;
             this._setVoiceState(VS.SPEAKING);
         }
-        this.currentTurnId = ++this.nextTurnId;
-        this.ttsClient.speak(firstMsg, this.sessionId, this.currentTurnId);
+        this.currentTurnId = this.openingTurnId || ++this.nextTurnId;
+        const usedPrepared = this.ttsClient.playPrepared?.(this.sessionId, this.currentTurnId);
+        if (!usedPrepared) {
+            this.ttsClient.speak(firstMsg, this.sessionId, this.currentTurnId);
+        }
+        console.log(`[TTS] opening ${usedPrepared ? 'prepared' : 'fallback'} playback`, {
+            prepareAgeMs: this.openingTtsPrepareStartedAt
+                ? Math.round(performance.now() - this.openingTtsPrepareStartedAt)
+                : null
+        });
+        this.openingTurnId = null;
     }
 
     // ─── 종료 다이얼로그 ───

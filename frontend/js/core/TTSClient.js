@@ -28,6 +28,7 @@ export class TTSClient {
         this.audioPool = [new Audio()];
         this.poolIndex = 0;
         this.nextChunkId = 0;
+        this.preparedSession = null;
         this.outputMeter = new AudioReactiveMeter({
             fps: 30,
             gate: 0.012,
@@ -141,6 +142,138 @@ export class TTSClient {
         this.startSession(sessionId, turnId);
         this.enqueue(text, sessionId, turnId);
         this.finishSession(turnId);
+    }
+
+    hasPrepared(sessionId, turnId) {
+        const prepared = this.preparedSession;
+        return !!prepared
+            && prepared.sessionId === sessionId
+            && prepared.turnId === turnId
+            && !prepared.consumed;
+    }
+
+    async prepare(text, sessionId, turnId) {
+        const normalized = text?.trim();
+        if (!normalized || !sessionId || !turnId) return false;
+
+        this.abortPrepared();
+        this.stopped = false;
+        this.activeSessionId = sessionId;
+        this.activeTurnId = turnId;
+
+        const config = {
+            chunkId: 0,
+            text: normalized,
+            sessionId,
+            turnId,
+            prepared: true
+        };
+
+        this._emitEvent('TTS_PREPARE_START', 'START', {
+            sessionId,
+            turnId,
+            textLength: normalized.length
+        });
+
+        try {
+            const player = new AudioStreamPlayer({
+                autoStart: false,
+                audioElement: this._getNextAudioFromPool(),
+                onFirstPacket: (data) => {
+                    this._emitEvent('TTS_PREPARE_FIRST_PACKET', 'SUCCESS', { ...config, latencySec: data?.latency });
+                },
+                onPlayStart: (data) => {
+                    this._emitEvent('TTS_PREPARED_PLAY_START', 'SUCCESS', { ...config, playStartSec: data?.playStartTime });
+                    this.onPlayStart?.(data);
+                },
+                onComplete: () => this._handlePreparedComplete(player)
+            });
+            player.currentTurnId = turnId;
+            await player.init();
+            await this._setupOutputMeter(player.audio);
+
+            const abortController = new AbortController();
+            const prepared = {
+                player,
+                abortController,
+                text: normalized,
+                sessionId,
+                turnId,
+                consumed: false,
+                ready: false
+            };
+            this.preparedSession = prepared;
+
+            this._streamTextToPlayer(config, player, abortController)
+                .then(() => {
+                    if (this.stopped || this.preparedSession !== prepared || this.activeTurnId !== turnId) return;
+                    prepared.ready = true;
+                    this._emitEvent('TTS_PREPARE_DONE', 'SUCCESS', {
+                        ...config,
+                        bytes: player.totalBytesReceived
+                    });
+                    if (player.totalBytesReceived > 0) {
+                        player.finish(turnId);
+                    } else {
+                        this.abortPrepared();
+                    }
+                })
+                .catch(error => {
+                    if (error.name !== 'AbortError') {
+                        console.error('[TTS] prepared synthesis error:', error);
+                    }
+                    this._emitEvent('TTS_PREPARE_ERROR', error.name === 'AbortError' ? 'ABORT' : 'ERROR', {
+                        ...config,
+                        error: error.message
+                    });
+                    if (this.preparedSession === prepared) this.preparedSession = null;
+                });
+
+            return true;
+        } catch (error) {
+            console.error('[TTS] prepare session error:', error);
+            this._emitEvent('TTS_PREPARE_ERROR', 'ERROR', {
+                ...config,
+                error: error.message
+            });
+            this.preparedSession = null;
+            return false;
+        }
+    }
+
+    playPrepared(sessionId, turnId) {
+        const prepared = this.preparedSession;
+        if (!this.hasPrepared(sessionId, turnId)) return false;
+
+        prepared.consumed = true;
+        this.stopPlaybackOnly();
+        this.stopped = false;
+        this.activeSessionId = sessionId;
+        this.activeTurnId = turnId;
+        this.finishRequested = true;
+        this.activeSessions = [prepared];
+        this._emitEvent('TTS_PREPARED_PLAY', 'START', {
+            sessionId,
+            turnId,
+            ready: prepared.ready,
+            bytes: prepared.player.totalBytesReceived
+        });
+        this._startOutputVolumeMeter();
+        prepared.player.play();
+        return true;
+    }
+
+    abortPrepared() {
+        const prepared = this.preparedSession;
+        if (!prepared) return;
+        prepared.consumed = true;
+        prepared.abortController?.abort();
+        prepared.player?.stop();
+        this.preparedSession = null;
+        this._emitEvent('TTS_PREPARE_ABORT', 'ABORT', {
+            sessionId: prepared.sessionId,
+            turnId: prepared.turnId
+        });
     }
 
     async _processNextInQueue() {
@@ -314,6 +447,13 @@ export class TTSClient {
         }
     }
 
+    _handlePreparedComplete(finishedPlayer) {
+        if (this.preparedSession?.player === finishedPlayer) {
+            this.preparedSession = null;
+        }
+        this._handleSessionComplete(finishedPlayer);
+    }
+
     _notifyCompleteIfIdle() {
         if (this.finishRequested && this.queue.length === 0 && this.activeSessions.length === 0 && !this.isProcessing) {
             this._emitEvent('TTS_SESSION_COMPLETE', 'SUCCESS', { turnId: this.activeTurnId });
@@ -324,6 +464,7 @@ export class TTSClient {
     stop() {
         this._emitEvent('TTS_STOP', 'INFO', { queueLength: this.queue.length, activeSessions: this.activeSessions.length });
         this.stopped = true;
+        this.abortPrepared();
         this.queue = [];
         this.isProcessing = false;
         this.finishRequested = false;

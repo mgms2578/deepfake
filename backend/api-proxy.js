@@ -516,21 +516,43 @@ function normalizeClassification(raw, userInput) {
     const inferred = inferClassificationFromText(userInput);
     const base = raw && typeof raw === 'object' ? raw : {};
     const legacyCategory = base.category ? logic.normalizeCategory(base.category) : null;
+    const primaryIntent = base.intent || base.primary_intent || base.i;
+    const subtype = base.subtype || base.s;
+    const compactAmount = Number(base.amount_krw || base.amount || base.a || 0) || null;
+    const compactAmountMeaning = base.amount_meaning || base.amountMeaning || base.m || 'unknown_reference';
+    const paymentAccept = base.payment_accept ?? base.paymentAccept ?? base.p ?? base.payment?.is_payment_acceptance;
+    const accountRequest = base.account_request ?? base.accountRequest ?? base.q ?? base.payment?.is_account_request;
+    const conditional = base.conditional ?? base.c ?? base.payment?.is_conditional;
+    const meaningful = base.meaningful ?? base.is_meaningful;
+
+    const baseAmounts = Array.isArray(base.amounts) ? [...base.amounts] : [];
+    if (compactAmount) {
+        baseAmounts.push({
+            raw: String(base.amount_raw || base.raw_amount || compactAmount),
+            amount_krw: compactAmount,
+            meaning: compactAmountMeaning
+        });
+    }
 
     const classification = {
-        primary_intent: normalizeIntent(inferred.primary_intent || base.primary_intent || (
+        primary_intent: normalizeIntent(inferred.primary_intent || primaryIntent || (
             legacyCategory === 'UNRELATED' ? 'OFF_TOPIC'
                 : legacyCategory === 'REFUSAL_OR_DEFENSE' ? 'VERIFICATION_OR_DEFENSE'
                 : legacyCategory?.includes('OFFER') || legacyCategory === 'FULL_ACCEPTANCE' ? 'PAYMENT_OFFER'
                 : 'SCENARIO_RELATED'
         )),
-        subtype: inferred.subtype || base.subtype || legacyCategory || 'GENERAL',
-        amounts: Array.isArray(base.amounts) ? base.amounts : [],
+        subtype: inferred.subtype || subtype || legacyCategory || 'GENERAL',
+        amounts: baseAmounts,
         payment: {
-            is_payment_acceptance: toBool(base.payment?.is_payment_acceptance || inferred.payment?.is_payment_acceptance),
-            is_account_request: toBool(base.payment?.is_account_request || inferred.payment?.is_account_request),
-            offered_amount_krw: Number(base.payment?.offered_amount_krw || inferred.payment?.offered_amount_krw || 0) || null,
-            is_conditional: toBool(base.payment?.is_conditional || inferred.payment?.is_conditional)
+            is_payment_acceptance: toBool(paymentAccept || inferred.payment?.is_payment_acceptance),
+            is_account_request: toBool(accountRequest || inferred.payment?.is_account_request),
+            offered_amount_krw: Number(
+                base.payment?.offered_amount_krw
+                || (compactAmountMeaning === 'payment_offer' ? compactAmount : 0)
+                || inferred.payment?.offered_amount_krw
+                || 0
+            ) || null,
+            is_conditional: toBool(conditional || inferred.payment?.is_conditional)
         },
         verification: {
             identity_check: toBool(base.verification?.identity_check || inferred.verification?.identity_check),
@@ -542,9 +564,9 @@ function normalizeClassification(raw, userInput) {
         visit: {
             wants_to_visit: toBool(base.visit?.wants_to_visit || inferred.visit?.wants_to_visit || inferred.primary_intent === 'VISIT_OR_LOCATION_ACTION'),
             location_request: toBool(base.visit?.location_request || inferred.visit?.location_request),
-            hospital_name_question_only: toBool(base.visit?.hospital_name_question_only)
+            hospital_name_question_only: toBool(base.visit?.hospital_name_question_only || subtype === 'HOSPITAL_NAME_QUESTION')
         },
-        is_meaningful: base.is_meaningful !== false && inferred.is_meaningful !== false,
+        is_meaningful: meaningful !== false && inferred.is_meaningful !== false,
         confidence: Number(base.confidence || 0.7) || 0.7
     };
 
@@ -571,6 +593,44 @@ function normalizeClassification(raw, userInput) {
     }
 
     return classification;
+}
+
+function isMinimalNoiseInput(userInput) {
+    const text = String(userInput || '').replace(/\s/g, '');
+    return text === '' || ['어', '음', '아', '.', '...', 'ㅇ'].includes(text);
+}
+
+function makeServerHandledResult(userInput) {
+    const classification = normalizeClassification({}, userInput);
+    return {
+        category: deriveCategory(classification),
+        classification
+    };
+}
+
+function extractMetadataFromUnifiedResponse(text) {
+    const index = String(text || '').lastIndexOf(logic.CONFIG.METADATA_SEPARATOR);
+    if (index === -1) {
+        return {
+            visible: String(text || '').trim(),
+            metadata: null
+        };
+    }
+
+    const visible = String(text || '').slice(0, index).trim();
+    const raw = String(text || '').slice(index + logic.CONFIG.METADATA_SEPARATOR.length).trim();
+    try {
+        return { visible, metadata: parseClassifierJson(raw) };
+    } catch (_) {
+        return { visible, metadata: null };
+    }
+}
+
+function normalizeUnifiedCategory(metadata, fallbackClassification) {
+    const category = metadata?.user_class
+        ? logic.normalizeCategory(metadata.user_class)
+        : deriveCategory(fallbackClassification);
+    return category;
 }
 
 function deriveCategory(classification) {
@@ -1350,20 +1410,28 @@ app.post('/v1/chat/completions', async (req, res) => {
             'Connection': 'keep-alive'
         });
 
-        emitTrace('CLASSIFY_REQUEST');
-        const { category, classification } = await classifyInput(userInput, trace);
-        emitTrace('CLASSIFY_DONE', {
-            category,
-            primaryIntent: classification.primary_intent,
-            subtype: classification.subtype
-        });
-        const willRequestPayment = category === "LOWER_AMOUNT_OFFER" || (category === "RELATED" && shouldRequestPayment(classification, session));
-        updateConversationState(session, category, classification, willRequestPayment);
-
         let selectedStrategy = "unknown";
         let resultType = null;
-        let instruction = "";
         let fixedEnding = null;
+        let category = null;
+        let classification = null;
+
+        if (isMinimalNoiseInput(userInput)) {
+            ({ category, classification } = makeServerHandledResult(userInput));
+            selectedStrategy = "noise_retry";
+            const retryMessage = logic.getRandomElement(logic.NOISE_RETRY_RESPONSES);
+            updateConversationState(session, category, classification, false);
+            res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: retryMessage } }] })}\n\n`);
+            res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: logic.CONFIG.METADATA_SEPARATOR + JSON.stringify({ user_class: category, selected_strategy: selectedStrategy, should_end: false, classification }) } }] })}\n\n`);
+            if (sessionManager.isLatestTurn(sessionId, turnId)) {
+                session.conversation.push({ role: 'user', content: userInput });
+                session.conversation.push({ role: 'assistant', content: retryMessage });
+            }
+            res.end('data: [DONE]\n\n');
+            return;
+        }
+
+        ({ category, classification } = makeServerHandledResult(userInput));
 
         if (category === "FULL_ACCEPTANCE") {
             selectedStrategy = "fixed_fail_full_or_near";
@@ -1373,10 +1441,6 @@ app.post('/v1/chat/completions', async (req, res) => {
             selectedStrategy = "fixed_fail_full_or_near";
             resultType = "SCAM_SUCCESS_NEAR";
             fixedEnding = logic.getRandomElement(logic.FULL_OR_NEAR_FAIL_ENDINGS);
-        } else if (session.control_counts.lower_amount_offer_count >= 3) {
-            selectedStrategy = "fixed_fail_lower_amount_limit";
-            resultType = "SCAM_SUCCESS_PARTIAL";
-            fixedEnding = logic.getRandomElement(logic.LOWER_AMOUNT_FAIL_ENDINGS);
         } else if (session.control_counts.defense_success_count >= 3) {
             selectedStrategy = "fixed_scammer_giveup_defense";
             resultType = "SCAMMER_GIVEUP_DEFENSE";
@@ -1396,6 +1460,7 @@ app.post('/v1/chat/completions', async (req, res) => {
         }
 
         if (fixedEnding) {
+            updateConversationState(session, category, classification, false);
             if (!res.headersSent) res.writeHead(200, { 'Content-Type': 'text/event-stream' });
             res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: fixedEnding } }] })}\n\n`);
             res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: logic.CONFIG.METADATA_SEPARATOR + JSON.stringify({ user_class: category, selected_strategy: selectedStrategy, result_type: resultType, should_end: true, classification }) } }] })}\n\n`);
@@ -1407,54 +1472,17 @@ app.post('/v1/chat/completions', async (req, res) => {
             return;
         }
 
-        if (classification.primary_intent === "CONFUSED_OR_NOISE") {
-            selectedStrategy = "noise_retry";
-            const retryMessage = logic.getRandomElement(logic.NOISE_RETRY_RESPONSES);
-            if (!res.headersSent) res.writeHead(200, { 'Content-Type': 'text/event-stream' });
-            res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: retryMessage } }] })}\n\n`);
-            res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: logic.CONFIG.METADATA_SEPARATOR + JSON.stringify({ user_class: category, selected_strategy: selectedStrategy, should_end: false, classification }) } }] })}\n\n`);
-            if (sessionManager.isLatestTurn(sessionId, turnId)) {
-                session.conversation.push({ role: 'user', content: userInput });
-                session.conversation.push({ role: 'assistant', content: retryMessage });
-            }
-            res.end('data: [DONE]\n\n');
-            return;
-        }
-
-        if (category === "LOWER_AMOUNT_OFFER") {
-            selectedStrategy = "lower_amount_request_100";
-            instruction = logic.INSTRUCTIONS.LOWER_AMOUNT_OFFER;
-        } else if (category === "RELATED") {
-            if (willRequestPayment) {
-                selectedStrategy = "related_with_payment_request";
-                instruction = logic.INSTRUCTIONS.RELATED_WITH_PAYMENT;
-            } else {
-                selectedStrategy = "related_without_payment_request";
-                const isHospitalQ = classification.visit?.hospital_name_question_only || classification.subtype === 'HOSPITAL_NAME_QUESTION' || logic.isSimpleHospitalLocationQuestion(userInput);
-                instruction = logic.INSTRUCTIONS.RELATED_WITHOUT_PAYMENT(isHospitalQ);
-            }
-        } else if (category === "REFUSAL_OR_DEFENSE") {
-            selectedStrategy = "refusal_or_defense";
-            instruction = getDefenseInstruction(classification);
-        } else {
-            selectedStrategy = classification.primary_intent === "CONFUSED_OR_NOISE" ? "noise_or_unclear" : "unrelated";
-            instruction = classification.primary_intent === "CONFUSED_OR_NOISE"
-                ? "사용자의 말이 짧거나 잘 들리지 않습니다. '잘 안 들린다, 다시 말해달라'는 식으로 짧게 말하고 송금 요구는 하지 마세요."
-                : logic.INSTRUCTIONS.UNRELATED;
-        }
-
         const messages = [
-            { role: 'system', content: logic.SYSTEM_PROMPT_OPTIMIZED },
-            { role: 'system', content: `[이번 턴 지시] ${instruction}` },
-            { role: 'system', content: `[분류 결과]\n${JSON.stringify({ category, selectedStrategy, willRequestPayment, pressure: session.pressure, control_counts: session.control_counts, classification }, null, 2)}` },
+            { role: 'system', content: logic.UNIFIED_PROMPT_FAST },
             ...session.conversation.slice(-10),
             { role: 'user', content: userInput }
         ];
 
         const activeLlm = getActiveLlmSettings();
-        trace.recordStep('RESPONSE_LLM_REQUEST', 'START', { turnId, model: activeLlm.model, category, selectedStrategy });
-        emitTrace('RESPONSE_LLM_REQUEST', { model: activeLlm.model, category, selectedStrategy });
-        await handleStreamingCall(activeLlm.model, messages, category, selectedStrategy, res, session, trace, turnId, classification, emitTrace);
+        selectedStrategy = "unified_fast";
+        trace.recordStep('UNIFIED_LLM_REQUEST', 'START', { turnId, model: activeLlm.model, selectedStrategy });
+        emitTrace('UNIFIED_LLM_REQUEST', { model: activeLlm.model, selectedStrategy });
+        await handleUnifiedStreamingCall(activeLlm.model, messages, res, session, trace, turnId, emitTrace);
     } catch (e) {
         trace.recordStep('REQUEST_FAILED', 'ERROR', { error: e.message });
         if (!res.headersSent) res.status(500).json({ error: e.message });
@@ -1553,6 +1581,95 @@ async function handleStreamingCall(model, messages, category, strategy, res, ses
             trace?.recordStep('LLM_STREAM_DONE', 'SUCCESS', { turnId, model, responseLength: fullResponse.length });
             emitTrace?.('RESPONSE_LLM_DONE', { model, responseLength: fullResponse.length });
             res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: logic.CONFIG.METADATA_SEPARATOR + JSON.stringify({ user_class: category, selected_strategy: strategy, should_end: false, classification }) } }] })}\n\n`);
+            res.end('data: [DONE]\n\n');
+        });
+    } catch (e) {
+        throw e;
+    }
+}
+
+async function handleUnifiedStreamingCall(model, messages, res, session, trace, turnId = 0, emitTrace = null) {
+    try {
+        const streamRes = await callLLM(model, messages, true);
+        if (!res.headersSent) res.writeHead(streamRes.statusCode, streamRes.headers);
+
+        let fullResponse = "";
+        const decoder = new StringDecoder('utf8');
+        let buffer = "";
+        let firstTokenSent = false;
+
+        streamRes.on('data', (chunk) => {
+            buffer += decoder.write(chunk);
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+
+            for (const line of lines) {
+                if (!line.trim()) continue;
+                try {
+                    const text = isGeminiModel(model)
+                        ? parseGeminiStreamLine(line)
+                        : parseOpenAIStreamLine(line);
+
+                    if (!text) {
+                        if (!isGeminiModel(model) && line.trim() === 'data: [DONE]') res.write(`${line}\n\n`);
+                        continue;
+                    }
+
+                    if (!firstTokenSent) {
+                        firstTokenSent = true;
+                        trace?.recordStep('UNIFIED_LLM_FIRST_TOKEN', 'SUCCESS', { turnId, model });
+                        emitTrace?.('UNIFIED_LLM_FIRST_TOKEN', { model });
+                    }
+
+                    fullResponse += text;
+                    res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`);
+                } catch (e) {
+                    trace?.recordStep('UNIFIED_STREAM_PARSE_FAILED', 'ERROR', { error: e.message });
+                }
+            }
+        });
+
+        streamRes.on('end', () => {
+            if (buffer.trim()) {
+                try {
+                    const text = isGeminiModel(model)
+                        ? parseGeminiStreamLine(buffer)
+                        : parseOpenAIStreamLine(buffer);
+                    if (text) {
+                        fullResponse += text;
+                        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`);
+                    }
+                } catch (e) {}
+            }
+
+            const userInput = messages[messages.length - 1].content;
+            const parsed = extractMetadataFromUnifiedResponse(fullResponse);
+            const classification = normalizeClassification(parsed.metadata || {}, userInput);
+            const category = normalizeUnifiedCategory(parsed.metadata, classification);
+            const responseType = parsed.metadata?.response_type || null;
+            const willRequestPayment = category === "LOWER_AMOUNT_OFFER" || responseType === "payment_request";
+
+            updateConversationState(session, category, classification, willRequestPayment);
+
+            if (parsed.metadata === null) {
+                res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: logic.CONFIG.METADATA_SEPARATOR + JSON.stringify({ user_class: category, selected_strategy: 'unified_fast_fallback', should_end: false, classification }) } }] })}\n\n`);
+            }
+
+            if (sessionManager.isLatestTurn(session.id, turnId)) {
+                session.conversation.push({ role: 'user', content: userInput });
+                session.conversation.push({ role: 'assistant', content: parsed.visible || fullResponse });
+            } else {
+                trace?.recordStep('HISTORY_SKIP_STALE_TURN', 'SUCCESS', { turnId, latestTurnId: session.latestTurnId });
+            }
+
+            trace?.recordStep('UNIFIED_LLM_DONE', 'SUCCESS', {
+                turnId,
+                model,
+                category,
+                responseType,
+                responseLength: fullResponse.length
+            });
+            emitTrace?.('UNIFIED_LLM_DONE', { model, category, responseType, responseLength: fullResponse.length });
             res.end('data: [DONE]\n\n');
         });
     } catch (e) {
