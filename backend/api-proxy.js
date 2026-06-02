@@ -608,6 +608,54 @@ function makeServerHandledResult(userInput) {
     };
 }
 
+function hasRecentPaymentRequest(session) {
+    const recentAssistant = [...(session?.conversation || [])]
+        .reverse()
+        .find(item => item.role === 'assistant')?.content || '';
+    const visibleText = String(recentAssistant).split(logic.CONFIG.METADATA_SEPARATOR)[0];
+    return /(100\s*만|백\s*만|돈|송금|입금|계좌|보내|맞춰|치료비|검사비)/.test(visibleText);
+}
+
+function isContextualPaymentAcceptance(userInput, session) {
+    if (!hasRecentPaymentRequest(session)) return false;
+    const text = String(userInput || '').replace(/\s+/g, ' ').trim();
+    const compact = text.replace(/\s/g, '');
+    if (!compact || /[?？]/.test(compact)) return false;
+    if (/(못|안|싫|거절|확인|경찰|병원|전화|영상|직접|누구|왜|어디|얼마)/.test(compact)) return false;
+    return /^(응|네|어|그래|알았어|ㅇㅋ|오케이|ok|okay|보낼게|보내줄게|입금할게|송금할게|맞춰줄게|해줄게|그래알았어|응알았어|네알겠습니다|알겠어)$/i.test(compact);
+}
+
+function makeContextualPaymentAcceptanceResult() {
+    return {
+        category: 'FULL_ACCEPTANCE',
+        classification: {
+            primary_intent: 'PAYMENT_OFFER',
+            subtype: 'CONTEXTUAL_FULL_ACCEPTANCE',
+            amounts: [],
+            payment: {
+                is_payment_acceptance: true,
+                is_account_request: false,
+                offered_amount_krw: null,
+                is_conditional: false
+            },
+            verification: {
+                identity_check: false,
+                family_secret_check: false,
+                video_call_request: false,
+                external_confirmation: false,
+                scam_suspicion: false
+            },
+            visit: {
+                wants_to_visit: false,
+                location_request: false,
+                hospital_name_question_only: false
+            },
+            is_meaningful: true,
+            confidence: 0.9
+        }
+    };
+}
+
 function extractMetadataFromUnifiedResponse(text) {
     const index = String(text || '').lastIndexOf(logic.CONFIG.METADATA_SEPARATOR);
     if (index === -1) {
@@ -1431,7 +1479,11 @@ app.post('/v1/chat/completions', async (req, res) => {
             return;
         }
 
-        ({ category, classification } = makeServerHandledResult(userInput));
+        if (isContextualPaymentAcceptance(userInput, session)) {
+            ({ category, classification } = makeContextualPaymentAcceptanceResult());
+        } else {
+            ({ category, classification } = makeServerHandledResult(userInput));
+        }
 
         if (category === "FULL_ACCEPTANCE") {
             selectedStrategy = "fixed_fail_full_or_near";
@@ -1597,6 +1649,43 @@ async function handleUnifiedStreamingCall(model, messages, res, session, trace, 
         const decoder = new StringDecoder('utf8');
         let buffer = "";
         let firstTokenSent = false;
+        const metadataSeparator = logic.CONFIG.METADATA_SEPARATOR;
+        const separatorTailLength = Math.max(0, metadataSeparator.length - 1);
+        let visibleBuffer = "";
+        let metadataStarted = false;
+
+        const writeClientContent = (content) => {
+            if (!content) return;
+            res.write(`data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\n`);
+        };
+
+        const handleModelText = (text) => {
+            if (!text) return;
+            fullResponse += text;
+
+            if (!firstTokenSent) {
+                firstTokenSent = true;
+                trace?.recordStep('UNIFIED_LLM_FIRST_TOKEN', 'SUCCESS', { turnId, model });
+                emitTrace?.('UNIFIED_LLM_FIRST_TOKEN', { model });
+            }
+
+            if (metadataStarted) return;
+
+            visibleBuffer += text;
+            const metadataIndex = visibleBuffer.indexOf(metadataSeparator);
+            if (metadataIndex !== -1) {
+                writeClientContent(visibleBuffer.slice(0, metadataIndex));
+                visibleBuffer = "";
+                metadataStarted = true;
+                return;
+            }
+
+            if (visibleBuffer.length > separatorTailLength) {
+                const writableLength = visibleBuffer.length - separatorTailLength;
+                writeClientContent(visibleBuffer.slice(0, writableLength));
+                visibleBuffer = visibleBuffer.slice(writableLength);
+            }
+        };
 
         streamRes.on('data', (chunk) => {
             buffer += decoder.write(chunk);
@@ -1615,14 +1704,7 @@ async function handleUnifiedStreamingCall(model, messages, res, session, trace, 
                         continue;
                     }
 
-                    if (!firstTokenSent) {
-                        firstTokenSent = true;
-                        trace?.recordStep('UNIFIED_LLM_FIRST_TOKEN', 'SUCCESS', { turnId, model });
-                        emitTrace?.('UNIFIED_LLM_FIRST_TOKEN', { model });
-                    }
-
-                    fullResponse += text;
-                    res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`);
+                    handleModelText(text);
                 } catch (e) {
                     trace?.recordStep('UNIFIED_STREAM_PARSE_FAILED', 'ERROR', { error: e.message });
                 }
@@ -1636,14 +1718,17 @@ async function handleUnifiedStreamingCall(model, messages, res, session, trace, 
                         ? parseGeminiStreamLine(buffer)
                         : parseOpenAIStreamLine(buffer);
                     if (text) {
-                        fullResponse += text;
-                        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`);
+                        handleModelText(text);
                     }
                 } catch (e) {}
             }
 
             const userInput = messages[messages.length - 1].content;
             const parsed = extractMetadataFromUnifiedResponse(fullResponse);
+            if (!metadataStarted && visibleBuffer) {
+                writeClientContent(visibleBuffer);
+                visibleBuffer = "";
+            }
             const classification = normalizeClassification(parsed.metadata || {}, userInput);
             const category = normalizeUnifiedCategory(parsed.metadata, classification);
             const responseType = parsed.metadata?.response_type || null;
@@ -1651,9 +1736,13 @@ async function handleUnifiedStreamingCall(model, messages, res, session, trace, 
 
             updateConversationState(session, category, classification, willRequestPayment);
 
-            if (parsed.metadata === null) {
-                res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: logic.CONFIG.METADATA_SEPARATOR + JSON.stringify({ user_class: category, selected_strategy: 'unified_fast_fallback', should_end: false, classification }) } }] })}\n\n`);
-            }
+            const metadataForClient = parsed.metadata || {
+                user_class: category,
+                selected_strategy: 'unified_fast_fallback',
+                should_end: false,
+                classification
+            };
+            writeClientContent(logic.CONFIG.METADATA_SEPARATOR + JSON.stringify(metadataForClient));
 
             if (sessionManager.isLatestTurn(session.id, turnId)) {
                 session.conversation.push({ role: 'user', content: userInput });
