@@ -451,15 +451,39 @@ class App {
         const marks = trace.marks || {};
         const items = [
             ['전송', 'user_send'],
-            ['LLM 시작', 'llm_first_token'],
-            ['LLM 완료', 'llm_done'],
+            ['분류', 'classify_done'],
+            ['응답 시작', 'response_llm_first_token'],
+            ['첫문장', 'first_sentence_ready'],
+            ['응답 완료', 'llm_done'],
             ['TTS 요청', 'tts_first_request'],
             ['TTS 응답', 'tts_first_packet'],
-            ['재생 시작', 'audio_play_start']
+            ['재생', 'audio_play_start']
         ];
         trace.element.textContent = items
             .map(([label, key]) => `${label} ${marks[key] ?? '-'}ms`)
             .join(' · ');
+    }
+
+    handleServerTrace(serverTrace, turnId = this.currentTurnId) {
+        if (!serverTrace?.step || this.latencyTrace?.turnId !== turnId) return;
+        const stepMap = {
+            CLASSIFY_DONE: 'classify_done',
+            RESPONSE_LLM_REQUEST: 'response_llm_request',
+            RESPONSE_LLM_FIRST_TOKEN: 'response_llm_first_token',
+            RESPONSE_LLM_DONE: 'llm_done'
+        };
+        const label = stepMap[serverTrace.step];
+        if (label && this.latencyTrace.marks[label] === undefined) {
+            this.latencyTrace.marks[label] = Number(serverTrace.latency || 0);
+            this.updateLatencyElement(this.latencyTrace);
+        }
+        this.logClientEvent({
+            step: `SERVER_${serverTrace.step}`,
+            status: 'INFO',
+            sessionId: this.sessionId,
+            turnId,
+            details: serverTrace
+        });
     }
 
     parseScenarioMetadata(content) {
@@ -1059,6 +1083,7 @@ class App {
                 const normalized = chunk?.trim();
                 if (!normalized || sentTtsTexts.has(normalized) || myTurnId !== this.currentTurnId) return;
                 sentTtsTexts.add(normalized);
+                if (!firstTtsRequestSent) this.markLatency('first_sentence_ready', { textLength: normalized.length });
                 this.logClientEvent({
                     step: 'APP_TTS_ENQUEUE_ATTEMPT',
                     status: 'INFO',
@@ -1127,6 +1152,15 @@ class App {
                     if (dataStr === '[DONE]') continue;
                     try {
                         const data = JSON.parse(dataStr);
+                        if (data.trace?.step) {
+                            this.handleServerTrace(data.trace, myTurnId);
+                            continue;
+                        }
+                        if (data.error) {
+                            const streamError = new Error(data.error);
+                            streamError.fatal = true;
+                            throw streamError;
+                        }
                         const content = data.choices?.[0]?.delta?.content;
                         if (content) {
                             const { visibleText, metadata } = this.parseScenarioMetadata(content);
@@ -1135,7 +1169,7 @@ class App {
                             if (firstToken) {
                                 this.setMessageTextPreservingLatency(loadingDiv, '', myTurnId);
                                 firstToken = false;
-                                this.markLatency('llm_first_token');
+                                this.markLatency('response_llm_first_token');
                             }
                             fullContent += visibleText;
                             updateTTSBuffer(visibleText);
@@ -1147,7 +1181,9 @@ class App {
                                 if (el) el.innerText = fullContent;
                             }
                         }
-                    } catch (e) {}
+                    } catch (e) {
+                        if (e.fatal) throw e;
+                    }
                 }
             }
 

@@ -810,9 +810,19 @@ async function getUsageSummary() {
         if (entry.step) byStep[entry.step] = (byStep[entry.step] || 0) + 1;
         if (entry.category) byCategory[entry.category] = (byCategory[entry.category] || 0) + 1;
         if (entry.status === 'ERROR') errors.push(entry);
-        if (entry.step === 'LLM_STREAM_DONE' || entry.step === 'REQUEST_COMPLETE') llmDoneLatencies.push(Number(entry.latency || 0));
-        if (entry.step === 'LLM_FIRST_TOKEN') firstTokenLatencies.push(Number(entry.latency || 0));
-        if (['REQUEST_START', 'CLASSIFY_DONE', 'LLM_STREAM_DONE', 'CLASSIFY_FAILED'].includes(entry.step)) {
+        if (entry.step === 'LLM_STREAM_DONE' || entry.step === 'RESPONSE_LLM_DONE' || entry.step === 'REQUEST_COMPLETE') llmDoneLatencies.push(Number(entry.latency || 0));
+        if (entry.step === 'LLM_FIRST_TOKEN' || entry.step === 'RESPONSE_LLM_FIRST_TOKEN') firstTokenLatencies.push(Number(entry.latency || 0));
+        if ([
+            'REQUEST_START',
+            'CLASSIFY_REQUEST',
+            'CLASSIFY_DONE',
+            'RESPONSE_LLM_REQUEST',
+            'RESPONSE_LLM_FIRST_TOKEN',
+            'RESPONSE_LLM_DONE',
+            'LLM_STREAM_DONE',
+            'CLASSIFY_FAILED',
+            'REQUEST_FAILED'
+        ].includes(entry.step)) {
             recent.push(entry);
         }
     }
@@ -1202,7 +1212,7 @@ app.get('/api/tts/stream', (req, res) => {
 async function classifyInput(userInput, trace = null) {
     try {
         const activeLlm = getActiveLlmSettings();
-        trace?.recordStep('CLASSIFY_START', 'START', { model: activeLlm.model });
+        trace?.recordStep('CLASSIFY_REQUEST', 'START', { model: activeLlm.model });
         const res = await callLLM(activeLlm.model, [
             { role: 'system', content: logic.CLASSIFIER_PROMPT },
             { role: 'user', content: userInput }
@@ -1296,13 +1306,29 @@ app.post('/v1/chat/completions', async (req, res) => {
     const sessionId = req.body.sessionId || "default-session";
     const turnId = Number(req.body.turnId || 0);
     const trace = logger.createTrace(sessionId);
+    const emitTrace = (step, details = {}) => {
+        if (!res.headersSent) return;
+        res.write(`data: ${JSON.stringify({ trace: { step, latency: Date.now() - trace.startTime, ...details } })}\n\n`);
+    };
+
     try {
         let session = sessionManager.getSession(sessionId) || sessionManager.createSession(sessionId);
         const userInput = req.body.messages[req.body.messages.length - 1].content;
         if (turnId) session.latestTurnId = turnId;
         trace.recordStep('REQUEST_START', 'SUCCESS', { turnId, textLength: userInput.length });
+        res.writeHead(200, {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache, no-transform',
+            'Connection': 'keep-alive'
+        });
 
+        emitTrace('CLASSIFY_REQUEST');
         const { category, classification } = await classifyInput(userInput, trace);
+        emitTrace('CLASSIFY_DONE', {
+            category,
+            primaryIntent: classification.primary_intent,
+            subtype: classification.subtype
+        });
         const willRequestPayment = category === "LOWER_AMOUNT_OFFER" || (category === "RELATED" && shouldRequestPayment(classification, session));
         updateConversationState(session, category, classification, willRequestPayment);
 
@@ -1342,7 +1368,7 @@ app.post('/v1/chat/completions', async (req, res) => {
         }
 
         if (fixedEnding) {
-            res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+            if (!res.headersSent) res.writeHead(200, { 'Content-Type': 'text/event-stream' });
             res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: fixedEnding } }] })}\n\n`);
             res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: logic.CONFIG.METADATA_SEPARATOR + JSON.stringify({ user_class: category, selected_strategy: selectedStrategy, result_type: resultType, should_end: true, classification }) } }] })}\n\n`);
             if (sessionManager.isLatestTurn(sessionId, turnId)) {
@@ -1356,7 +1382,7 @@ app.post('/v1/chat/completions', async (req, res) => {
         if (classification.primary_intent === "CONFUSED_OR_NOISE") {
             selectedStrategy = "noise_retry";
             const retryMessage = logic.getRandomElement(logic.NOISE_RETRY_RESPONSES);
-            res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+            if (!res.headersSent) res.writeHead(200, { 'Content-Type': 'text/event-stream' });
             res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: retryMessage } }] })}\n\n`);
             res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: logic.CONFIG.METADATA_SEPARATOR + JSON.stringify({ user_class: category, selected_strategy: selectedStrategy, should_end: false, classification }) } }] })}\n\n`);
             if (sessionManager.isLatestTurn(sessionId, turnId)) {
@@ -1398,9 +1424,16 @@ app.post('/v1/chat/completions', async (req, res) => {
         ];
 
         const activeLlm = getActiveLlmSettings();
-        await handleStreamingCall(activeLlm.model, messages, category, selectedStrategy, res, session, trace, turnId, classification);
+        trace.recordStep('RESPONSE_LLM_REQUEST', 'START', { turnId, model: activeLlm.model, category, selectedStrategy });
+        emitTrace('RESPONSE_LLM_REQUEST', { model: activeLlm.model, category, selectedStrategy });
+        await handleStreamingCall(activeLlm.model, messages, category, selectedStrategy, res, session, trace, turnId, classification, emitTrace);
     } catch (e) {
+        trace.recordStep('REQUEST_FAILED', 'ERROR', { error: e.message });
         if (!res.headersSent) res.status(500).json({ error: e.message });
+        else {
+            res.write(`data: ${JSON.stringify({ error: e.message })}\n\n`);
+            res.end('data: [DONE]\n\n');
+        }
     }
 });
 
@@ -1420,7 +1453,7 @@ function parseGeminiStreamLine(line) {
         .join('');
 }
 
-async function handleStreamingCall(model, messages, category, strategy, res, session, trace, turnId = 0, classification = null) {
+async function handleStreamingCall(model, messages, category, strategy, res, session, trace, turnId = 0, classification = null, emitTrace = null) {
     try {
         const streamRes = await callLLM(model, messages, true);
         if (!res.headersSent) res.writeHead(streamRes.statusCode, streamRes.headers);
@@ -1448,7 +1481,8 @@ async function handleStreamingCall(model, messages, category, strategy, res, ses
 
                     if (!firstTokenSent) {
                         firstTokenSent = true;
-                        trace?.recordStep('LLM_FIRST_TOKEN', 'SUCCESS', { turnId, model });
+                        trace?.recordStep('RESPONSE_LLM_FIRST_TOKEN', 'SUCCESS', { turnId, model });
+                        emitTrace?.('RESPONSE_LLM_FIRST_TOKEN', { model });
                     }
 
                     fullResponse += text;
@@ -1489,6 +1523,7 @@ async function handleStreamingCall(model, messages, category, strategy, res, ses
                 trace?.recordStep('HISTORY_SKIP_STALE_TURN', 'SUCCESS', { turnId, latestTurnId: session.latestTurnId });
             }
             trace?.recordStep('LLM_STREAM_DONE', 'SUCCESS', { turnId, model, responseLength: fullResponse.length });
+            emitTrace?.('RESPONSE_LLM_DONE', { model, responseLength: fullResponse.length });
             res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: logic.CONFIG.METADATA_SEPARATOR + JSON.stringify({ user_class: category, selected_strategy: strategy, should_end: false, classification }) } }] })}\n\n`);
             res.end('data: [DONE]\n\n');
         });
