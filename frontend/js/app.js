@@ -1405,7 +1405,7 @@ class App {
         // STT 시작
         if (autoListen) {
             if (this.canUseVoiceInput()) this._setVoiceState(VS.LISTENING);
-            else this.showVoiceInputUnavailable('마이크 입력을 사용할 수 없습니다. 텍스트로 입력해 주세요.');
+            else this.showVoiceInputUnavailable('마이크를 찾지 못했습니다. 음성대화 모드는 유지됩니다.');
         }
         return true;
     }
@@ -1465,7 +1465,7 @@ class App {
         const interimEl = document.getElementById('voice-interim-text');
         const bargeBtn = document.getElementById('btn-barge-in');
         if (textEl) textEl.innerText = message;
-        if (interimEl) interimEl.innerText = '음성모드는 유지됩니다. 아래 입력창으로 대화할 수 있습니다.';
+        if (interimEl) interimEl.innerText = '마이크를 연결하거나 스테레오 믹스 등 입력 장치를 설정한 뒤 다시 시도할 수 있습니다. 아래 입력창도 사용할 수 있습니다.';
         if (bargeBtn) bargeBtn.style.display = 'none';
     }
 
@@ -1480,7 +1480,7 @@ class App {
         switch (state) {
             case VS.LISTENING:
                 if (this.voiceInputUnavailable || !this.canUseVoiceInput()) {
-                    this.showVoiceInputUnavailable('마이크 입력을 사용할 수 없습니다. 텍스트로 입력해 주세요.');
+                    this.showVoiceInputUnavailable('마이크를 찾지 못했습니다. 음성대화 모드는 유지됩니다.');
                     break;
                 }
                 if (dotsEl) dotsEl.style.color = '#60a5fa';
@@ -1602,7 +1602,7 @@ class App {
             if (e.error === 'not-allowed') {
                 this.showVoiceInputUnavailable('마이크 권한이 차단되어 있습니다. 텍스트로 입력해 주세요.');
             } else if (e.error === 'audio-capture') {
-                this.showVoiceInputUnavailable('사용 가능한 마이크를 찾지 못했습니다. 텍스트로 입력해 주세요.');
+                this.showVoiceInputUnavailable('사용 가능한 마이크를 찾지 못했습니다. 음성대화 모드는 유지됩니다.');
             } else if (e.error !== 'aborted') {
                 if (this.voiceMode && this.voiceState === VS.LISTENING) {
                     setTimeout(() => {
@@ -1617,7 +1617,7 @@ class App {
         if (this.isListening) return;
         if (this.voiceState === VS.SPEAKING) return;
         if (this.voiceInputUnavailable || !this.canUseVoiceInput()) {
-            this.showVoiceInputUnavailable('마이크 입력을 사용할 수 없습니다. 텍스트로 입력해 주세요.');
+            this.showVoiceInputUnavailable('마이크를 찾지 못했습니다. 음성대화 모드는 유지됩니다.');
             return;
         }
         
@@ -1688,7 +1688,7 @@ class App {
                 this.stopVoiceInputLevelMeter();
                 console.warn('[STT] start failed:', e.message);
                 if (this.voiceMode && this.voiceState === VS.LISTENING) {
-                    this.showVoiceInputUnavailable('마이크 입력을 시작하지 못했습니다. 텍스트로 입력해 주세요.');
+                    this.showVoiceInputUnavailable('마이크 입력을 시작하지 못했습니다. 음성대화 모드는 유지됩니다.');
                 }
             }
         }
