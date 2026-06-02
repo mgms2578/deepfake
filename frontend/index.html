@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>AI 딥보이스 피싱 체험</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- 벨소리 오디오 (갤럭시 느낌의 무료 링톤) -->
+    <audio id="ringtone-audio" src="https://assets.mixkit.co/active_storage/sfx/2855/2855-preview.mp3" loop preload="auto"></audio>
+
+    <header id="service-topbar" class="service-topbar">
+        <button id="btn-service-back" class="service-nav-button" type="button">‹ 뒤로</button>
+        <strong id="service-page-title" class="service-page-title">음성 딥페이크 체험</strong>
+        <button id="btn-service-exit" class="service-nav-button danger" type="button">체험 종료</button>
+    </header>
+
+    <!-- 🚀 1. 인트로 화면 -->
+    <div id="screen-intro" class="screen active">
+        <div class="intro-stage">
+            <div class="intro-visual" aria-hidden="true">
+                <div class="intro-status-strip">
+                    <span>SAFE SIMULATION</span>
+                    <span>VOICE CLONE</span>
+                </div>
+                <div class="retro-phone-wrap">
+                    <div class="retro-phone">
+                        <div class="retro-phone-antenna"></div>
+                        <div class="retro-phone-speaker"></div>
+                        <div class="retro-phone-screen">
+                            <span>INCOMING</span>
+                            <strong>DEEP VOICE</strong>
+                            <small>CALL TEST</small>
+                        </div>
+                        <div class="retro-phone-wave">
+                            <span></span><span></span><span></span><span></span><span></span>
+                        </div>
+                        <div class="retro-phone-keypad">
+                            <span></span><span></span><span></span>
+                            <span></span><span></span><span></span>
+                            <span></span><span></span><span></span>
+                        </div>
+                    </div>
+                    <div class="intro-call-card">
+                        <span class="intro-call-label">복제 음성 통화</span>
+                        <strong>아들</strong>
+                        <small>발신 중...</small>
+                    </div>
+                </div>
+            </div>
+            <div class="intro-content">
+                <span class="intro-badge">보이스피싱 딥페이크 체험</span>
+                <h1 class="intro-title">
+                    <span class="intro-title-line">내 목소리가</span>
+                    <span class="intro-title-line">걸려온다면?</span>
+                </h1>
+                <p class="intro-subtitle">가상의 통화 환경에서 음성 복제와 사칭 대화를 직접 체험합니다.</p>
+                <div class="intro-note">
+                    <span>녹음</span>
+                    <span>복제</span>
+                    <span>통화 체험</span>
+                </div>
+                <button id="btn-start-experience" class="btn-primary intro-start-button">
+                    체험 시작하기
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 📄 2. 동의 화면 -->
+    <div id="modal-consent" class="modal-overlay consent-overlay">
+        <div class="modal-content consent-content">
+            <button id="btn-consent-back" class="modal-back-button" type="button">‹ 뒤로</button>
+            <h1 class="font-bold mb-4 text-center" style="font-size: 1.5rem; color: var(--foreground);">개인정보 수집 및 이용 동의</h1>
+            
+            <div class="glass-card" style="margin-bottom: 16px;">
+                <h3 class="font-bold mb-2 flex items-center" style="color: var(--foreground);"><span style="margin-right:8px; color:var(--success);">🛡️</span> 수집하는 개인정보</h3>
+                <p class="text-muted text-sm" style="line-height: 1.5;">• 음성 데이터 (10-20초 분량)</p>
+            </div>
+
+            <div class="glass-card" style="margin-bottom: 32px;">
+                <h3 class="font-bold mb-2 flex items-center" style="color: var(--foreground);"><span style="margin-right:8px; color:#9333ea;">⏱️</span> 이용 목적 및 보유 기간</h3>
+                <p class="text-muted text-sm" style="line-height: 1.5;">
+                    • 목적: AI 음성 클로닝 체험<br>
+                    • 보유 기간: 체험 완료 후 즉시 삭제<br>
+                    • 외부 전송: MiniMax AI 서비스 (일시적 처리 후 삭제)
+                </p>
+            </div>
+            
+            <div style="background: #fef2f2; border: 1px solid #fecaca; padding: 12px; border-radius: 8px; margin-bottom: 24px;">
+                <p style="color: var(--danger); font-size: 0.85rem; text-align: center; font-weight: 600;">
+                    ⚠️ 본 동의는 체험을 위한 것이며, 언제든지 중단할 수 있습니다.
+                </p>
+            </div>
+
+            <div style="display: flex; gap: 12px;">
+                <button id="btn-consent-decline" class="btn-outline">동의하지 않음</button>
+                <button id="btn-consent-accept" class="btn-primary">동의하고 계속하기</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 🎙️ 3. 녹음 화면 -->
+    <div id="screen-recording" class="screen">
+        <div class="flex justify-center items-center mb-6" style="gap: 8px;">
+            <div style="width:28px; height:28px; border-radius:50%; background:var(--primary); color:white; display:flex; justify-content:center; align-items:center; font-weight:bold; font-size:0.8rem;">1</div>
+            <div style="height:2px; width:40px; background:var(--border);"></div>
+            <div style="width:28px; height:28px; border-radius:50%; background:var(--border); color:var(--text-muted); display:flex; justify-content:center; align-items:center; font-weight:bold; font-size:0.8rem;">2</div>
+            <div style="height:2px; width:40px; background:var(--border);"></div>
+            <div style="width:28px; height:28px; border-radius:50%; background:var(--border); color:var(--text-muted); display:flex; justify-content:center; align-items:center; font-weight:bold; font-size:0.8rem;">3</div>
+        </div>
+
+        <h2 class="text-center font-bold mb-4" style="font-size: 1.5rem;">음성 녹음하기</h2>
+        
+        <div class="glass-card" style="padding: 16px;">
+            <p class="text-center mb-2 font-bold" style="color: #9333ea;">목소리 학습용 대본을 끝까지 읽어주세요</p>
+            <div id="script-text" class="script-box">
+                "오늘은 조용한 방에서 제 목소리를 또렷하게 녹음합니다. 바람이 조금 불어도 괜찮고, 파란 하늘 아래 천천히 걸으며 가족에게 안부를 전하는 마음으로 말해봅니다."
+            </div>
+            <p class="text-center text-muted text-sm mt-4">예상 읽기 시간: 10-20초 | 또박또박, 평소 말투로 읽어주세요</p>
+        </div>
+
+        <div class="waveform-container" id="waveform">
+            <!-- JS에서 동적으로 바 생성 -->
+        </div>
+
+        <div class="flex flex-col items-center gap-4 mt-auto">
+            <button id="btn-record-control" class="btn-primary record-button" style="border-radius: 30px; padding: 20px;">
+                🎤 녹음 시작하기
+            </button>
+            
+            <div style="width: 100%; display: flex; align-items: center; gap: 12px; margin: 8px 0;">
+                <div style="flex: 1; height: 1px; background: var(--border);"></div>
+                <span style="font-size: 0.8rem; color: var(--text-muted);">또는</span>
+                <div style="flex: 1; height: 1px; background: var(--border);"></div>
+            </div>
+
+            <label for="input-file-upload" class="btn-outline" style="text-align: center;">
+                📁 파일 업로드
+            </label>
+            <input type="file" id="input-file-upload" accept=".mp3,.m4a,.wav,audio/mpeg,audio/mp4,audio/wav" style="display: none;">
+            
+            <p id="recording-status" class="text-center mt-2 text-muted text-sm">녹음 시작하기 버튼을 누르고 대본을 끝까지 읽어주세요</p>
+        </div>
+    </div>
+
+    <!-- ⏳ 4. 클로닝 진행 중 화면 -->
+    <div id="screen-cloning" class="screen" style="justify-content: center; text-align: center;">
+        <div style="position: relative; width: 80px; height: 80px; margin: 0 auto 24px;">
+            <div style="position: absolute; inset: 0; border: 4px solid var(--primary-light); border-radius: 50%;"></div>
+            <div style="position: absolute; inset: 0; border: 4px solid var(--primary); border-top-color: transparent; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+            <div style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 2rem;">🤖</div>
+        </div>
+        <style>@keyframes spin { to { transform: rotate(360deg); } }</style>
+
+        <h2 class="font-bold mb-2" style="font-size: 1.5rem;">음성 클로닝 진행 중</h2>
+        <p class="text-muted mb-8" style="line-height: 1.5;">MiniMax AI가 당신의 목소리를<br>학습하고 있습니다...</p>
+        
+        <div class="glass-card" style="padding: 16px;">
+            <div class="progress-container">
+                <div id="cloning-progress-bar"></div>
+            </div>
+            <p id="cloning-status-text" class="text-sm font-bold" style="color: var(--primary);">서버에 음성 업로드 중 (0%)</p>
+        </div>
+
+        <!-- 클로닝 실패 재시도 UI -->
+        <div id="cloning-retry-box" style="display: none; flex-direction: column; align-items: center; gap: 12px; margin-top: 24px;">
+            <div style="width: 64px; height: 64px; background: #fee2e2; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 2rem; margin-bottom: 8px;">❌</div>
+            <h3 class="font-bold" style="font-size: 1.25rem;">음성 클로닝 실패</h3>
+            <p id="cloning-error-message" style="color: var(--text-muted); font-size: 0.95rem; margin-bottom: 12px;">다시 녹음하거나 기본 목소리로 진행하세요.</p>
+            <button id="btn-cloning-retry" class="btn-primary">🎤 다시 녹음하기</button>
+            <button id="btn-cloning-skip" class="btn-outline" style="border: none; color: var(--text-muted);">기본 목소리로 계속하기</button>
+        </div>
+    </div>
+
+    <!-- 📞 5. 전화 수신 화면 (Incoming Call) -->
+    <div id="screen-incoming-call" class="screen" style="background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%); color: white; justify-content: space-between; padding-bottom: 60px;">
+        <div style="text-align: center; margin-top: 80px;">
+            <div style="width: 120px; height: 120px; background: rgba(255,255,255,0.1); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 60px; margin: 0 auto 24px; position: relative;">
+                👤
+                <div class="pulse-ring" style="position: absolute; inset: -10px; border: 2px solid #2563eb; border-radius: 50%; animation: pulse-ring 1.5s infinite;"></div>
+            </div>
+            <h2 style="font-size: 2.5rem; font-weight: 700; margin-bottom: 8px;">아들</h2>
+            <p style="color: rgba(255,255,255,0.7); font-size: 1.2rem; animation: blink 1.5s infinite;">휴대전화에서 전화 오는 중...</p>
+        </div>
+
+        <div style="display: flex; justify-content: space-around; width: 100%; padding: 0 20px;">
+            <div style="text-align: center; display: flex; flex-direction: column; align-items: center;">
+                <button id="btn-call-reject" style="width: 72px; height: 72px; background: #ef4444; border-radius: 50%; border: none; color: white; font-size: 32px; cursor: pointer; display: flex; align-items: center; justify-content: center; margin-bottom: 12px; box-shadow: 0 4px 12px rgba(239,68,68,0.4);">✕</button>
+                <span style="font-size: 1rem; color: white; font-weight: 600;">체험 종료</span>
+            </div>
+            <div style="text-align: center; display: flex; flex-direction: column; align-items: center;">
+                <button id="btn-call-accept" style="width: 72px; height: 72px; background: #22c55e; border-radius: 50%; border: none; color: white; font-size: 32px; cursor: pointer; display: flex; align-items: center; justify-content: center; margin-bottom: 12px; box-shadow: 0 4px 12px rgba(34,197,94,0.4); animation: shake 2s infinite;">📞</button>
+                <span style="font-size: 1rem; color: white; font-weight: 600;">응답</span>
+            </div>
+        </div>
+        <p class="call-reject-note">전화를 거절하면 체험이 종료되고 생성된 음성 데이터 삭제를 요청합니다.</p>
+        <style>
+            @keyframes shake {
+                0%, 100% { transform: rotate(0deg); }
+                10%, 30%, 50%, 70%, 90% { transform: rotate(-10deg); }
+                20%, 40%, 60%, 80% { transform: rotate(10deg); }
+            }
+        </style>
+    </div>
+
+    <!-- 💬 6. 대화 화면 (Chat) -->
+    <div id="screen-chat" class="screen chat-screen">
+        <!-- 상단 헤더 -->
+        <div class="chat-header">
+            <div class="chat-partner">
+                <div class="chat-avatar">👤</div>
+                <div>
+                    <h3 id="chat-partner-name" class="chat-partner-name">아들</h3>
+                </div>
+            </div>
+        </div>
+
+        <div id="message-area" class="chat-container flex flex-col">
+            <!-- 메시지들이 여기에 쌓임 -->
+        </div>
+
+        <div class="input-area">
+            <textarea id="chat-input" rows="1" placeholder="메시지 입력..."></textarea>
+            <button id="btn-send" class="chat-send-button">전송</button>
+            <button id="btn-voice-mode" class="chat-voice-button" title="음성대화" aria-label="음성대화 시작">
+                <span class="voice-mode-icon" aria-hidden="true">
+                    <span></span><span></span><span></span><span></span>
+                </span>
+                <span class="sr-only">음성대화 시작</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- 🆕 통화 종료 확인 모달 (기존 구조) -->
+    <div id="modal-end-confirm" class="modal-overlay">
+        <div class="modal-content" style="text-align: center;">
+            <div style="font-size: 3rem; margin-bottom: 16px;">🛑</div>
+            <h2 style="color: var(--foreground); margin-bottom: 8px;">체험을 종료하시겠습니까?</h2>
+            <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 24px;">모든 대화 및 음성 데이터가 안전하게 삭제됩니다.</p>
+            <p id="cleanup-status" class="cleanup-status" aria-live="polite"></p>
+            <div style="display: flex; gap: 12px;">
+                <button id="btn-end-cancel" class="btn-outline">계속하기</button>
+                <button id="btn-end-confirm" class="btn-primary" style="background: var(--danger);">종료하기</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 🆕 시나리오 종료 결과 모달 -->
+    <div id="modal-scenario-result" class="modal-overlay">
+        <div class="modal-content" style="text-align: center;">
+            <div id="scenario-result-icon" style="font-size: 3rem; margin-bottom: 16px;">📞</div>
+            <h2 id="scenario-result-title" style="color: var(--foreground); margin-bottom: 8px;">통화가 종료되었습니다</h2>
+            <p id="scenario-result-body" style="color: var(--text-muted); font-size: 0.95rem; line-height: 1.6; margin-bottom: 24px;"></p>
+            <p id="scenario-cleanup-status" class="cleanup-status" aria-live="polite"></p>
+            <button id="btn-scenario-result-finish" class="btn-primary">체험 종료하기</button>
+        </div>
+    </div>
+
+    <!-- 🆕 음성 대화 모드 패널 -->
+    <div id="voice-mode-overlay" class="voice-panel">
+        <!-- 상단: 발신자 + 타이머 -->
+        <div class="voice-panel-header">
+            <div class="voice-panel-avatar">👤</div>
+            <h3 class="voice-panel-title">아들</h3>
+            <span id="voice-call-timer" class="voice-call-timer">0:00</span>
+        </div>
+
+        <!-- 중앙: 최근 1턴 메시지 -->
+        <div class="voice-panel-body">
+            <p id="voice-last-message"></p>
+            <p id="voice-interim-text"></p>
+            <div id="voice-waveform" class="voice-waveform"></div>
+        </div>
+
+        <!-- 상태 표시 -->
+        <div id="voice-status" class="voice-status">
+            <span id="voice-status-dots">● ● ●</span>
+            <p id="voice-status-text">말씀하세요</p>
+        </div>
+
+        <!-- 하단 버튼 -->
+        <div class="voice-actions">
+            <button id="btn-barge-in" class="voice-barge-button">말 끊고 대답하기</button>
+            <button id="btn-voice-stop" style="display:none;">음성대화 종료</button>
+        </div>
+    </div>
+
+    <!-- ES Modules 연동 -->
+    <script type="module" src="js/app.js"></script>
+</body>
+</html>

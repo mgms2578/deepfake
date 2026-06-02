@@ -1,0 +1,10 @@
+{
+  "voice": {
+    "cloneModel": "speech-2.8-hd",
+    "ttsModel": "speech-2.8-turbo",
+    "updatedAt": "2026-05-28T09:33:03.184Z"
+  },
+  "provider": "gemini",
+  "model": "gemini-2.5-flash-lite",
+  "updatedAt": "2026-05-28T13:51:00.328Z"
+}

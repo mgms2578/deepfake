@@ -1,0 +1,43 @@
+# Environment / secrets
+.env
+.env.*
+!.env.example
+backend/.env
+backend_python_legacy/.env
+
+# Runtime data
+backend/data/*.sqlite
+backend/data/*.sqlite-*
+backend/*.jsonl
+backend/*.log
+*.log
+
+# Uploaded / recorded / generated media
+*.mp3
+*.wav
+*.m4a
+*.webm
+*.ogg
+*.mp4
+*.mov
+uploads/
+recordings/
+tmp/
+temp/
+
+# Dependencies / build output
+node_modules/
+dist/
+build/
+.cache/
+
+# Python caches / legacy local artifacts
+backend_python_legacy/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/

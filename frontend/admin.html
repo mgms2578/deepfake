@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>하마터면 딥페이크 체험 서비스 관리자</title>
+    <style>
+        :root {
+            --bg: #f6f8fb;
+            --fg: #182433;
+            --muted: #667085;
+            --border: #dce3ec;
+            --card: #ffffff;
+            --blue: #206bc4;
+            --blue-soft: #e9f2ff;
+            --green: #2fb344;
+            --red: #d63939;
+            --amber: #f59f00;
+            --shadow: 0 10px 30px rgba(24, 36, 51, 0.06);
+        }
+
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--fg);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+        }
+
+        .page {
+            width: min(800px, calc(100% - 32px));
+            margin: 22px auto 40px;
+        }
+
+        .topbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 16px;
+            margin-bottom: 18px;
+        }
+
+        h1 { margin: 0; font-size: 1.65rem; letter-spacing: -0.01em; }
+        h2 { margin: 0 0 12px; font-size: 1.05rem; }
+        p { margin: 0; color: var(--muted); line-height: 1.55; }
+
+        .toolbar { display: flex; gap: 8px; flex-wrap: wrap; }
+        button {
+            border: 1px solid transparent;
+            border-radius: 8px;
+            padding: 10px 12px;
+            font-weight: 750;
+            cursor: pointer;
+            background: #eef3f8;
+            color: var(--fg);
+        }
+        button.primary { background: var(--blue); color: white; }
+        button:disabled { opacity: .45; cursor: not-allowed; }
+        input[type="text"], select {
+            width: 100%;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 10px 11px;
+            font-size: .95rem;
+            color: var(--fg);
+            background: white;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 6px;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 16px;
+        }
+        .tab {
+            border: 0;
+            border-radius: 8px 8px 0 0;
+            background: transparent;
+            color: var(--muted);
+            padding: 11px 12px;
+        }
+        .tab.active {
+            color: var(--blue);
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-bottom-color: var(--card);
+            margin-bottom: -1px;
+        }
+
+        .section { display: none; }
+        .section.active { display: block; }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
+        }
+        .grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+        .card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 16px;
+            box-shadow: var(--shadow);
+        }
+        .metric-label { color: var(--muted); font-size: .83rem; font-weight: 700; }
+        .metric-value { margin-top: 8px; font-size: 1.7rem; font-weight: 800; }
+        .metric-sub { margin-top: 4px; color: var(--muted); font-size: .82rem; }
+        .chart {
+            width: 100%;
+            height: 170px;
+            display: block;
+        }
+        .chart-labels {
+            display: flex;
+            justify-content: space-between;
+            color: var(--muted);
+            font-size: .75rem;
+            margin-top: 4px;
+        }
+        .segmented {
+            display: inline-flex;
+            gap: 4px;
+            padding: 4px;
+            border: 1px solid var(--border);
+            border-radius: 9px;
+            background: #eef3f8;
+        }
+        .segmented button {
+            padding: 7px 10px;
+            border-radius: 7px;
+            background: transparent;
+            color: var(--muted);
+        }
+        .segmented button.active {
+            background: white;
+            color: var(--blue);
+            box-shadow: 0 1px 3px rgba(24, 36, 51, 0.08);
+        }
+        .legend { display: flex; gap: 12px; align-items: center; color: var(--muted); font-size: .82rem; }
+        .legend-dot { width: 10px; height: 10px; border-radius: 999px; display: inline-block; margin-right: 5px; }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            border-radius: 999px;
+            padding: 4px 9px;
+            font-size: .78rem;
+            font-weight: 800;
+            background: #eef3f8;
+            color: var(--muted);
+            margin: 3px 4px 3px 0;
+        }
+        .badge.ok { background: #eaf7ec; color: var(--green); }
+        .badge.warn { background: #fff4de; color: #ad6800; }
+        .badge.err { background: #fdecec; color: var(--red); }
+        .badge.blue { background: var(--blue-soft); color: var(--blue); }
+
+        .stack { display: flex; flex-direction: column; gap: 12px; }
+        .row {
+            display: grid;
+            grid-template-columns: 120px 1fr;
+            gap: 8px;
+            padding: 7px 0;
+            border-bottom: 1px solid #edf1f6;
+            font-size: .92rem;
+        }
+        .row:last-child { border-bottom: 0; }
+        .key { color: var(--muted); font-weight: 750; }
+        .value { word-break: break-all; }
+
+        .events {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: .84rem;
+        }
+        .events th, .events td {
+            border-bottom: 1px solid #edf1f6;
+            padding: 9px 6px;
+            text-align: left;
+            vertical-align: top;
+        }
+        .events th { color: var(--muted); font-size: .78rem; }
+
+        .model-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            max-height: 420px;
+            overflow: auto;
+            padding-right: 4px;
+        }
+        .model-option {
+            display: flex;
+            gap: 10px;
+            align-items: flex-start;
+            padding: 10px;
+            border: 1px solid var(--border);
+            border-radius: 9px;
+            background: white;
+            cursor: pointer;
+        }
+        .model-option:hover { border-color: var(--blue); }
+        .model-option input { margin-top: 3px; }
+        .model-name { font-weight: 800; word-break: break-all; }
+        .model-meta { margin-top: 4px; color: var(--muted); font-size: .8rem; }
+
+        .notice {
+            margin-top: 12px;
+            border: 1px solid #bfdbfe;
+            background: var(--blue-soft);
+        }
+        .status { margin-top: 8px; font-weight: 750; color: var(--green); }
+        .status.error { color: var(--red); }
+
+        @media (max-width: 760px) {
+            .page { width: min(800px, calc(100% - 24px)); margin-top: 14px; }
+            .topbar { display: block; }
+            .toolbar { margin-top: 12px; }
+            .grid, .grid.three { grid-template-columns: 1fr; }
+            .row { grid-template-columns: 1fr; }
+            .tabs { overflow-x: auto; }
+        }
+    </style>
+</head>
+<body>
+    <main class="page">
+        <header class="topbar">
+            <div>
+                <h1>하마터면 딥페이크 체험 서비스 관리자</h1>
+                <p>서비스 사용량, 삭제 상태, LLM 설정을 확인합니다.</p>
+            </div>
+            <div class="toolbar">
+                <button id="btn-refresh">새로고침</button>
+                <button id="btn-apply" class="primary" disabled>LLM 적용</button>
+                <button id="btn-voice-apply" class="primary" disabled>음성 적용</button>
+            </div>
+        </header>
+
+        <nav class="tabs">
+            <button class="tab active" data-tab="dashboard">대시보드</button>
+            <button class="tab" data-tab="llm">LLM 설정</button>
+            <button class="tab" data-tab="voice">음성 모델</button>
+            <button class="tab" data-tab="logs">최근 로그</button>
+        </nav>
+
+        <section id="dashboard" class="section active">
+            <div class="grid three">
+                <div class="card">
+                    <div class="metric-label">오늘 이용 세션</div>
+                    <div id="metric-today-sessions" class="metric-value">-</div>
+                    <div id="metric-total-sessions" class="metric-sub">전체 -</div>
+                </div>
+                <div class="card">
+                    <div class="metric-label">오늘 체험 완료</div>
+                    <div id="metric-today-completed" class="metric-value">-</div>
+                    <div id="metric-completion-rate" class="metric-sub">완료율 -</div>
+                </div>
+                <div class="card">
+                    <div class="metric-label">오늘 중도 종료</div>
+                    <div id="metric-today-abandoned" class="metric-value">-</div>
+                    <div id="metric-active-sessions" class="metric-sub">진행 중 -</div>
+                </div>
+            </div>
+
+            <div class="card" style="margin-top:12px;">
+                <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:10px;flex-wrap:wrap;">
+                    <h2 style="margin:0;">서비스 사용 추이</h2>
+                    <div class="segmented" role="tablist" aria-label="그래프 기간 선택">
+                        <button class="range-tab active" data-range="daily">오늘</button>
+                        <button class="range-tab" data-range="weekly">주별</button>
+                        <button class="range-tab" data-range="monthly">월별</button>
+                    </div>
+                </div>
+                <div class="legend">
+                    <span><span class="legend-dot" style="background:#206bc4;"></span>전체 시도</span>
+                    <span><span class="legend-dot" style="background:#2fb344;"></span>완료</span>
+                </div>
+                <svg id="usage-chart" class="chart" viewBox="0 0 720 190" role="img" aria-label="서비스 사용 추이 선그래프"></svg>
+                <div id="usage-chart-labels" class="chart-labels"></div>
+            </div>
+
+            <div class="grid" style="margin-top:12px;">
+                <div class="card">
+                    <h2>현재 LLM</h2>
+                    <div class="row"><div class="key">LLM</div><div id="current-model" class="value">-</div></div>
+                    <div class="row"><div class="key">Clone</div><div id="current-clone-model" class="value">-</div></div>
+                    <div class="row"><div class="key">TTS</div><div id="current-tts-model" class="value">-</div></div>
+                    <div id="key-badges" style="margin-top:10px;"></div>
+                </div>
+                <div class="card">
+                    <h2>Voice 삭제 상태</h2>
+                    <div id="voice-stats"></div>
+                    <p class="metric-sub">정상 종료는 즉시 삭제, 비정상 종료는 다음 진입 cleanup에서 정리합니다.</p>
+                </div>
+            </div>
+
+            <div class="card" style="margin-top:12px;">
+                <h2>대화 분류 통계</h2>
+                <div id="category-stats"></div>
+                <p class="metric-sub">성능 지표: 평균 첫 토큰 <span id="metric-first-token">-</span>, 평균 LLM 완료 <span id="metric-llm-done">-</span>, 요청 <span id="metric-requests">-</span>, 이벤트 <span id="metric-events">-</span></p>
+            </div>
+        </section>
+
+        <section id="llm" class="section">
+            <div class="grid">
+                <div class="card">
+                    <h2>OpenAI LLM 모델</h2>
+                    <p id="openai-message">조회 중입니다.</p>
+                    <div id="openai-models" class="model-list"></div>
+                </div>
+                <div class="card">
+                    <h2>Gemini LLM 모델</h2>
+                    <p id="gemini-message">조회 중입니다.</p>
+                    <div id="gemini-models" class="model-list"></div>
+                </div>
+            </div>
+            <div id="confirm-panel" class="card notice" style="display:none;">
+                <h2>적용 전 확인</h2>
+                <div class="row"><div class="key">현재</div><div id="confirm-current" class="value">-</div></div>
+                <div class="row"><div class="key">변경</div><div id="confirm-next" class="value">-</div></div>
+                <p>선택한 모델은 새 대화 요청부터 적용됩니다.</p>
+            </div>
+        </section>
+
+        <section id="voice" class="section">
+            <div id="voice-model-source" class="card notice" style="margin-bottom:12px;"></div>
+            <div class="grid">
+                <div class="card">
+                    <h2>클로닝 모델</h2>
+                    <p>기본값은 고품질 클로닝용 `speech-2.8-hd`입니다.</p>
+                    <div style="margin-top:12px;">
+                        <select id="voice-clone-model"></select>
+                    </div>
+                </div>
+                <div class="card">
+                    <h2>TTS 모델</h2>
+                    <p>기본값은 지연이 짧은 `speech-2.8-turbo`입니다.</p>
+                    <div style="margin-top:12px;">
+                        <select id="voice-tts-model"></select>
+                    </div>
+                </div>
+            </div>
+            <div id="voice-confirm-panel" class="card notice" style="display:none;">
+                <h2>적용 전 확인</h2>
+                <div class="row"><div class="key">현재</div><div id="voice-confirm-current" class="value">-</div></div>
+                <div class="row"><div class="key">변경</div><div id="voice-confirm-next" class="value">-</div></div>
+                <p>선택한 모델은 새 클로닝/TTS 요청부터 적용됩니다. 이미 진행 중인 요청에는 영향을 주지 않습니다.</p>
+            </div>
+        </section>
+
+        <section id="logs" class="section">
+            <div class="card">
+                <h2>최근 이벤트</h2>
+                <table class="events">
+                    <thead><tr><th>시간</th><th>Step</th><th>상태</th><th>Latency</th><th>세션</th></tr></thead>
+                    <tbody id="recent-events"></tbody>
+                </table>
+            </div>
+        </section>
+
+        <p id="status-message" class="status"></p>
+    </main>
+
+    <script>
+        const state = {
+            settings: null,
+            selected: null,
+            voiceSettings: null,
+            selectedVoice: null,
+            graphRange: 'daily',
+            usageSeries: null,
+            adminToken: '',
+            keys: null
+        };
+        const $ = (id) => document.getElementById(id);
+
+        function initAdminToken() {
+            const params = new URLSearchParams(window.location.search);
+            const token = params.get('token') || localStorage.getItem('adminToken') || '';
+            if (token) {
+                localStorage.setItem('adminToken', token);
+                state.adminToken = token;
+            }
+        }
+
+        function adminFetch(url, options = {}) {
+            const headers = new Headers(options.headers || {});
+            if (state.adminToken) headers.set('x-admin-token', state.adminToken);
+            return fetch(url, { ...options, headers });
+        }
+
+        function ms(value) {
+            return value ? `${value}ms` : '-';
+        }
+
+        function formatSetting(setting) {
+            return setting ? `${setting.provider} / ${setting.model}` : '-';
+        }
+
+        function formatVoiceSetting(setting) {
+            return setting ? `clone=${setting.cloneModel}, tts=${setting.ttsModel}` : '-';
+        }
+
+        function badge(text, type = '') {
+            return `<span class="badge ${type}">${text}</span>`;
+        }
+
+        function escapeHtml(value) {
+            return String(value ?? '-')
+                .replaceAll('&', '&amp;')
+                .replaceAll('<', '&lt;')
+                .replaceAll('>', '&gt;')
+                .replaceAll('"', '&quot;')
+                .replaceAll("'", '&#039;');
+        }
+
+        function updateSettings(settings, keys) {
+            state.settings = settings;
+            state.keys = keys || state.keys || {};
+            $('current-model').textContent = settings.model;
+            $('key-badges').innerHTML = [
+                badge(`OpenAI ${state.keys.openai ? 'ON' : 'OFF'}`, state.keys.openai ? 'ok' : 'err'),
+                badge(`Gemini ${state.keys.gemini ? 'ON' : 'OFF'}`, state.keys.gemini ? 'ok' : 'err'),
+                badge(`MiniMax ${state.keys.minimax ? 'ON' : 'OFF'}`, state.keys.minimax ? 'ok' : 'err'),
+                badge(`Admin ${state.keys.admin ? 'ON' : 'OFF'}`, state.keys.admin ? 'ok' : 'warn')
+            ].join('');
+            updateConfirm();
+        }
+
+        function updateVoiceSettings(settings) {
+            state.voiceSettings = settings;
+            if (!state.selectedVoice) {
+                state.selectedVoice = {
+                    cloneModel: settings.cloneModel,
+                    ttsModel: settings.ttsModel
+                };
+            }
+            $('current-clone-model').textContent = settings.cloneModel;
+            $('current-tts-model').textContent = settings.ttsModel;
+            ensureSelectOption($('voice-clone-model'), state.selectedVoice.cloneModel);
+            ensureSelectOption($('voice-tts-model'), state.selectedVoice.ttsModel);
+            $('voice-clone-model').value = state.selectedVoice.cloneModel;
+            $('voice-tts-model').value = state.selectedVoice.ttsModel;
+            updateVoiceConfirm();
+        }
+
+        function updateUsage(usage) {
+            const todaySessions = usage.todaySessions ?? 0;
+            const todayCompleted = usage.todayCompletedSessions ?? 0;
+            const todayAbandoned = usage.todayAbandonedSessions ?? 0;
+            const completionRate = todaySessions ? Math.round((todayCompleted / todaySessions) * 100) : 0;
+
+            $('metric-today-sessions').textContent = todaySessions;
+            $('metric-total-sessions').textContent = `전체 ${usage.totalSessions ?? usage.uniqueSessions ?? 0} 세션`;
+            $('metric-today-completed').textContent = todayCompleted;
+            $('metric-completion-rate').textContent = todaySessions ? `완료율 ${completionRate}%` : '오늘 이용 없음';
+            $('metric-today-abandoned').textContent = todayAbandoned;
+            $('metric-active-sessions').textContent = `진행 중 ${usage.activeMemorySessions ?? 0}`;
+            $('metric-requests').textContent = usage.totalRequests ?? 0;
+            $('metric-events').textContent = usage.totalEvents ?? 0;
+            $('metric-first-token').textContent = ms(usage.avgFirstTokenMs);
+            $('metric-llm-done').textContent = ms(usage.avgLlmDoneMs);
+            state.usageSeries = usage.usageSeries || null;
+            renderUsageChart();
+
+            const voice = usage.voiceStats || {};
+            $('voice-stats').innerHTML = ['active', 'delete_pending', 'deleted', 'delete_failed']
+                .map(key => badge(`${key}: ${voice[key] || 0}`, key === 'deleted' ? 'ok' : key.includes('failed') ? 'err' : 'blue'))
+                .join('');
+
+            const categories = usage.byCategory || {};
+            const entries = Object.entries(categories);
+            $('category-stats').innerHTML = entries.length
+                ? entries.map(([key, value]) => badge(`${key}: ${value}`, 'blue')).join('')
+                : '<p>아직 분류 로그가 없습니다.</p>';
+
+            renderEvents(usage.recent || []);
+        }
+
+        function linePath(points, valueKey, xStep, padding, chartHeight, max) {
+            return points.map((item, index) => {
+                const x = padding.left + index * xStep;
+                const y = padding.top + chartHeight - (Number(item[valueKey] || 0) / max) * chartHeight;
+                return `${index === 0 ? 'M' : 'L'} ${x.toFixed(1)} ${y.toFixed(1)}`;
+            }).join(' ');
+        }
+
+        function renderUsageChart() {
+            const svg = $('usage-chart');
+            const width = 720;
+            const height = 190;
+            const padding = { top: 18, right: 18, bottom: 34, left: 30 };
+            const chartWidth = width - padding.left - padding.right;
+            const chartHeight = height - padding.top - padding.bottom;
+            const data = state.usageSeries?.[state.graphRange] || [];
+            const max = Math.max(1, ...data.flatMap(item => [Number(item.total || 0), Number(item.completed || 0)]));
+            const xStep = data.length > 1 ? chartWidth / (data.length - 1) : chartWidth;
+            const totalPath = linePath(data, 'total', xStep, padding, chartHeight, max);
+            const completedPath = linePath(data, 'completed', xStep, padding, chartHeight, max);
+
+            const points = data.map((item, index) => {
+                const x = padding.left + index * xStep;
+                const totalY = padding.top + chartHeight - (Number(item.total || 0) / max) * chartHeight;
+                const completedY = padding.top + chartHeight - (Number(item.completed || 0) / max) * chartHeight;
+                return `
+                    <circle cx="${x}" cy="${totalY}" r="3" fill="#206bc4"><title>${escapeHtml(item.label)} 전체 ${item.total}</title></circle>
+                    <circle cx="${x}" cy="${completedY}" r="3" fill="#2fb344"><title>${escapeHtml(item.label)} 완료 ${item.completed}</title></circle>
+                `;
+            }).join('');
+
+            const grid = [0, 0.5, 1].map(ratio => {
+                const y = padding.top + chartHeight - chartHeight * ratio;
+                return `<line x1="${padding.left}" y1="${y}" x2="${width - padding.right}" y2="${y}" stroke="#edf1f6" stroke-width="1"/>`;
+            }).join('');
+
+            svg.innerHTML = `
+                ${grid}
+                <path d="${totalPath}" fill="none" stroke="#206bc4" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="${completedPath}" fill="none" stroke="#2fb344" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+                ${points}
+                <text x="${padding.left}" y="13" fill="#667085" font-size="11">최대 ${max}건</text>
+            `;
+
+            const labels = data.length
+                ? [data[0], data[Math.floor((data.length - 1) / 2)], data[data.length - 1]]
+                    .filter(Boolean)
+                    .map(item => `<span>${escapeHtml(item.label)}</span>`)
+                    .join('')
+                : '<span>-</span>';
+            $('usage-chart-labels').innerHTML = labels;
+        }
+
+        function renderEvents(events) {
+            $('recent-events').innerHTML = events.length
+                ? events.map(event => `
+                    <tr>
+                        <td>${escapeHtml(new Date(event.timestamp).toLocaleString())}</td>
+                        <td>${escapeHtml(event.step)}</td>
+                        <td>${escapeHtml(event.status)}</td>
+                        <td>${escapeHtml(event.latency)}</td>
+                        <td>${escapeHtml(event.sessionId)}</td>
+                    </tr>
+                `).join('')
+                : '<tr><td colspan="5">최근 이벤트가 없습니다.</td></tr>';
+        }
+
+        function updateConfirm() {
+            const changed = state.selected && state.settings
+                && (state.selected.provider !== state.settings.provider || state.selected.model !== state.settings.model);
+            $('btn-apply').disabled = !changed;
+            $('confirm-panel').style.display = changed ? 'block' : 'none';
+            if (changed) {
+                $('confirm-current').textContent = formatSetting(state.settings);
+                $('confirm-next').textContent = formatSetting(state.selected);
+            }
+        }
+
+        function updateVoiceConfirm() {
+            const current = state.voiceSettings;
+            const next = state.selectedVoice;
+            const changed = current && next
+                && (current.cloneModel !== next.cloneModel || current.ttsModel !== next.ttsModel);
+            $('btn-voice-apply').disabled = !changed;
+            $('voice-confirm-panel').style.display = changed ? 'block' : 'none';
+            if (changed) {
+                $('voice-confirm-current').textContent = formatVoiceSetting(current);
+                $('voice-confirm-next').textContent = formatVoiceSetting(next);
+            }
+        }
+
+        function ensureSelectOption(select, value) {
+            if (!value) return;
+            const exists = Array.from(select.options).some(option => option.value === value);
+            if (!exists) {
+                select.appendChild(new Option(value, value));
+            }
+        }
+
+        function renderVoiceSelect(selectId, models) {
+            const select = $(selectId);
+            select.innerHTML = '';
+            (models || []).forEach(model => {
+                const id = model.id || model;
+                select.appendChild(new Option(id, id));
+            });
+        }
+
+        function renderVoiceOptions(options) {
+            renderVoiceSelect('voice-clone-model', options.cloneModels || []);
+            renderVoiceSelect('voice-tts-model', options.ttsModels || []);
+        }
+
+        function renderVoiceModelSource(data) {
+            const sourceText = data.modelSource === 'minimax-api'
+                ? 'MiniMax /v1/models API에서 speech 모델을 불러왔습니다.'
+                : 'MiniMax /v1/models API에 speech 모델이 없어 공식 MiniMax 문서 스펙에서 불러왔습니다.';
+            $('voice-model-source').innerHTML = `
+                <h2>모델 목록 출처</h2>
+                <p>${escapeHtml(sourceText)}</p>
+                ${data.modelWarning ? `<p class="metric-sub">${escapeHtml(data.modelWarning)}</p>` : ''}
+            `;
+        }
+
+        function renderModels(provider, payload) {
+            const list = $(`${provider}-models`);
+            const message = $(`${provider}-message`);
+            list.innerHTML = '';
+
+            if (!payload.configured || payload.error) {
+                message.textContent = payload.error || 'API 키가 설정되어 있지 않습니다.';
+                message.className = 'status error';
+                return;
+            }
+
+            message.textContent = `${payload.models.length}개 LLM 모델 · 높은 버전 순`;
+            message.className = 'status';
+
+            payload.models.forEach((model) => {
+                const option = document.createElement('label');
+                option.className = 'model-option';
+                option.innerHTML = `
+                    <input type="radio" name="llm-model" ${model.selectable ? '' : 'disabled'}>
+                    <div>
+                        <div class="model-name"></div>
+                        <div class="model-meta"></div>
+                    </div>
+                `;
+                option.querySelector('.model-name').textContent = model.id;
+                option.querySelector('.model-meta').textContent = provider === 'gemini'
+                    ? `methods: ${(model.supportedGenerationMethods || []).join(', ') || '-'}`
+                    : `owned by: ${model.ownedBy || '-'}`;
+                const input = option.querySelector('input');
+                input.checked = state.settings?.provider === provider && state.settings?.model === model.id;
+                input.addEventListener('change', () => {
+                    state.selected = { provider, model: model.id };
+                    updateConfirm();
+                });
+                list.appendChild(option);
+            });
+        }
+
+        async function loadDashboard() {
+            const res = await adminFetch('/api/admin/usage');
+            if (!res.ok) throw new Error(`usage HTTP ${res.status}`);
+            const data = await res.json();
+            updateSettings(data.settings, data.keys);
+            if (data.voiceSettings) updateVoiceSettings(data.voiceSettings);
+            updateUsage(data.usage);
+        }
+
+        async function loadVoiceSettings() {
+            const res = await adminFetch('/api/admin/voice/settings');
+            if (!res.ok) throw new Error(`voice settings HTTP ${res.status}`);
+            const data = await res.json();
+            renderVoiceOptions(data.options || {});
+            renderVoiceModelSource(data);
+            updateVoiceSettings(data.settings);
+        }
+
+        async function loadModels() {
+            const res = await adminFetch('/api/admin/llm/models');
+            if (!res.ok) throw new Error(`models HTTP ${res.status}`);
+            const data = await res.json();
+            updateSettings(data.settings, state.keys);
+            renderModels('openai', data.providers.openai);
+            renderModels('gemini', data.providers.gemini);
+        }
+
+        async function refreshAll() {
+            $('status-message').textContent = '조회 중입니다.';
+            $('status-message').className = 'status';
+            await loadDashboard();
+            await loadModels();
+            await loadVoiceSettings();
+            $('status-message').textContent = '조회 완료';
+        }
+
+        async function applySelection() {
+            if (!state.selected || !state.settings) return;
+            const ok = confirm(`LLM 설정을 변경합니다.\n\n현재: ${formatSetting(state.settings)}\n변경: ${formatSetting(state.selected)}\n\n적용하시겠습니까?`);
+            if (!ok) return;
+            const res = await adminFetch('/api/admin/llm/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ...state.selected, confirmed: true })
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok || !data.success) throw new Error(data.error || `settings HTTP ${res.status}`);
+            state.selected = null;
+            await refreshAll();
+        }
+
+        async function applyVoiceSelection() {
+            if (!state.selectedVoice || !state.voiceSettings) return;
+            const ok = confirm(`음성 모델 설정을 변경합니다.\n\n현재: ${formatVoiceSetting(state.voiceSettings)}\n변경: ${formatVoiceSetting(state.selectedVoice)}\n\n적용하시겠습니까?`);
+            if (!ok) return;
+            const res = await adminFetch('/api/admin/voice/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ...state.selectedVoice, confirmed: true })
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok || !data.success) throw new Error(data.error || `voice settings HTTP ${res.status}`);
+            state.selectedVoice = null;
+            await refreshAll();
+        }
+
+        document.querySelectorAll('.tab').forEach(button => {
+            button.addEventListener('click', () => {
+                document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+                document.querySelectorAll('.section').forEach(section => section.classList.remove('active'));
+                button.classList.add('active');
+                $(button.dataset.tab).classList.add('active');
+            });
+        });
+
+        document.querySelectorAll('.range-tab').forEach(button => {
+            button.addEventListener('click', () => {
+                document.querySelectorAll('.range-tab').forEach(tab => tab.classList.remove('active'));
+                button.classList.add('active');
+                state.graphRange = button.dataset.range;
+                renderUsageChart();
+            });
+        });
+
+        $('btn-refresh').addEventListener('click', () => refreshAll().catch(showError));
+        $('btn-apply').addEventListener('click', () => applySelection().catch(showError));
+        $('btn-voice-apply').addEventListener('click', () => applyVoiceSelection().catch(showError));
+        $('voice-clone-model').addEventListener('change', () => {
+            state.selectedVoice = {
+                cloneModel: $('voice-clone-model').value.trim(),
+                ttsModel: $('voice-tts-model').value.trim()
+            };
+            updateVoiceConfirm();
+        });
+        $('voice-tts-model').addEventListener('change', () => {
+            state.selectedVoice = {
+                cloneModel: $('voice-clone-model').value.trim(),
+                ttsModel: $('voice-tts-model').value.trim()
+            };
+            updateVoiceConfirm();
+        });
+
+        function showError(error) {
+            $('status-message').textContent = error.message;
+            $('status-message').className = 'status error';
+        }
+
+        initAdminToken();
+        refreshAll().catch(showError);
+    </script>
+</body>
+</html>
