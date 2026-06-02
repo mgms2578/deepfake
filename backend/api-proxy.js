@@ -34,11 +34,18 @@ app.use(express.json());
 const sttRouter = require('./stt-api');
 app.use('/api/stt', sttRouter);
 
-const OPENAI_API_KEY = (process.env.OPENAI_API_KEY || '').trim();
-const GEMINI_API_KEY = (process.env.GEMINI_API_KEY || '').trim();
+function normalizeEnvSecret(value) {
+    return String(value || '')
+        .trim()
+        .replace(/^['"]|['"]$/g, '')
+        .replace(/[\r\n\t ]+/g, '');
+}
+
+const OPENAI_API_KEY = normalizeEnvSecret(process.env.OPENAI_API_KEY);
+const GEMINI_API_KEY = normalizeEnvSecret(process.env.GEMINI_API_KEY);
 const GROUP_ID = (process.env.MINIMAX_GROUP_ID || '1916642387443061599').trim();
-const MINIMAX_API_KEY = (process.env.MINIMAX_API_KEY || '').trim();
-const ADMIN_TOKEN = (process.env.ADMIN_TOKEN || '').trim();
+const MINIMAX_API_KEY = normalizeEnvSecret(process.env.MINIMAX_API_KEY);
+const ADMIN_TOKEN = normalizeEnvSecret(process.env.ADMIN_TOKEN);
 
 const DEFAULT_GEMINI_MODEL = process.env.LLM_GEMINI_MODEL || 'gemini-3-flash';
 const USAGE_LOG_FILE = path.join(__dirname, 'usage_traces.jsonl');
