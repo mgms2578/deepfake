@@ -114,15 +114,15 @@ async function deleteVoiceApi(voiceId) {
 async function deleteRegisteredVoice(voiceId) {
     const result = await deleteVoiceApi(voiceId);
     if (result.success) {
-        voiceRegistry.markDeleteSuccess(voiceId);
+        await voiceRegistry.markDeleteSuccess(voiceId);
     } else {
-        voiceRegistry.markDeleteFailure(voiceId, result.error, VOICE_MAX_DELETE_ATTEMPTS);
+        await voiceRegistry.markDeleteFailure(voiceId, result.error, VOICE_MAX_DELETE_ATTEMPTS);
     }
     return result;
 }
 
 async function deleteSessionVoices(sessionId) {
-    const voices = voiceRegistry.getActiveVoicesBySession(sessionId);
+    const voices = await voiceRegistry.getActiveVoicesBySession(sessionId);
     const results = [];
 
     for (const voice of voices) {
@@ -134,7 +134,7 @@ async function deleteSessionVoices(sessionId) {
 }
 
 async function cleanupOldVoices(maxAgeMs = VOICE_MAX_AGE_MS) {
-    const candidates = voiceRegistry.getCleanupCandidates(maxAgeMs, VOICE_MAX_DELETE_ATTEMPTS);
+    const candidates = await voiceRegistry.getCleanupCandidates(maxAgeMs, VOICE_MAX_DELETE_ATTEMPTS);
     const results = [];
 
     for (const voice of candidates) {
@@ -767,7 +767,7 @@ function buildUsageSeries(entries) {
     return result;
 }
 
-function getUsageSummary() {
+async function getUsageSummary() {
     const entries = readUsageEntries();
     const traceIds = new Set();
     const sessions = new Set();
@@ -829,11 +829,11 @@ function getUsageSummary() {
         avgLlmDoneMs: average(llmDoneLatencies),
         errorCount: errors.length,
         recent: recent.slice(-20).reverse(),
-        voiceStats: voiceRegistry.getStats()
+        voiceStats: await voiceRegistry.getStats()
     };
 }
 
-app.get('/api/health', (req, res) => {
+app.get('/api/health', async (req, res) => {
     const activeLlm = getActiveLlmSettings();
     res.json({
         success: true,
@@ -844,7 +844,7 @@ app.get('/api/health', (req, res) => {
             minimax: Boolean(MINIMAX_API_KEY),
             admin: Boolean(ADMIN_TOKEN)
         },
-        voiceRegistry: voiceRegistry.getStats()
+        voiceRegistry: await voiceRegistry.getStats()
     });
 });
 
@@ -887,10 +887,10 @@ app.get('/api/admin/llm/models', requireAdmin, async (req, res) => {
     });
 });
 
-app.get('/api/admin/usage', requireAdmin, (req, res) => {
+app.get('/api/admin/usage', requireAdmin, async (req, res) => {
     res.json({
         success: true,
-        usage: getUsageSummary(),
+        usage: await getUsageSummary(),
         settings: getActiveLlmSettings(),
         voiceSettings: llmSettings.readVoiceSettings(),
         keys: {
@@ -1118,7 +1118,7 @@ app.post('/api/sessions/:id/audio', upload.single('audio'), async (req, res) => 
         if (cloneResponse.ok && cloneRes.base_resp?.status_code === 0) {
             const finalVoiceId = cloneRes.voice_id || cloneRes.data?.voice_id || targetVoiceId;
             const session = sessionManager.getSession(sessionId);
-            voiceRegistry.registerVoice(finalVoiceId, sessionId);
+            await voiceRegistry.registerVoice(finalVoiceId, sessionId);
 
             if (!session || sessionManager.isClosed(sessionId)) {
                 console.warn(`[VoiceClone] Session already closed. Deleting cloned voice immediately: ${finalVoiceId}`);
@@ -1236,7 +1236,7 @@ app.delete('/api/sessions/:id', async (req, res) => {
             hasVoice: Boolean(session?.clonedVoiceId)
         });
         if (session?.clonedVoiceId) {
-            voiceRegistry.registerVoice(session.clonedVoiceId, sessionId);
+            await voiceRegistry.registerVoice(session.clonedVoiceId, sessionId);
         }
 
         const voiceResults = await deleteSessionVoices(sessionId);
@@ -1250,7 +1250,7 @@ app.delete('/api/sessions/:id', async (req, res) => {
             success: true,
             sessionDeleted,
             voiceResults,
-            voiceStats: voiceRegistry.getStats()
+            voiceStats: await voiceRegistry.getStats()
         });
     } catch (error) {
         trace.recordStep('SESSION_DELETE', 'ERROR', { error: error.message });
@@ -1273,7 +1273,7 @@ app.post('/api/cleanup', async (req, res) => {
             deletedCount,
             voiceCleanupCount: voiceResults.length,
             voiceResults,
-            voiceStats: voiceRegistry.getStats()
+            voiceStats: await voiceRegistry.getStats()
         });
     } catch (error) {
         trace.recordStep('SESSION_CLEANUP_ENTRY', 'ERROR', { error: error.message });
