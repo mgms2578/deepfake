@@ -620,7 +620,7 @@ function isExplicitServerPaymentAcceptance(userInput) {
     if (/(못|안|싫|거절|확인|경찰|병원|전화|영상|직접|누구|왜|어디|얼마|사기)/.test(compact)) return false;
 
     const accountRequest = /(계좌줘|계좌알려줘|계좌번호줘|계좌번호알려줘|입금계좌줘|입금계좌알려줘|보낼계좌줘|보낼계좌알려줘)/.test(compact);
-    const transferCommit = /(보낼게|보내줄게|입금할게|송금할게|이체할게|돈보낼게|돈보내줄게|100만원보낼게|100만원보내줄게|100만보낼게|100만보내줄게)/.test(compact);
+    const transferCommit = /(보낼게|보내줄게|입금할게|송금할게|이체할게|쏠게|쏠께|쏠게요|쏠께요|쏜다|바로쏠게|바로쏠께|바로쏠게요|바로쏠께요|돈보낼게|돈보내줄게|100만원보낼게|100만원보내줄게|100만보낼게|100만보내줄게)/.test(compact);
     return accountRequest || transferCommit;
 }
 
@@ -1638,9 +1638,11 @@ async function handleUnifiedStreamingCall(model, messages, res, session, trace, 
         let visibleBuffer = "";
         let metadataStarted = false;
 
-        const writeClientContent = (content) => {
+        const writeClientContent = (content, ttsContent = null) => {
             if (!content) return;
-            res.write(`data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\n`);
+            const delta = { content };
+            if (ttsContent) delta.ttsContent = ttsContent;
+            res.write(`data: ${JSON.stringify({ choices: [{ delta }] })}\n\n`);
         };
 
         const handleModelText = (text) => {
@@ -1717,20 +1719,43 @@ async function handleUnifiedStreamingCall(model, messages, res, session, trace, 
             const category = normalizeUnifiedCategory(parsed.metadata, classification);
             const responseType = parsed.metadata?.response_type || null;
             const willRequestPayment = category === "LOWER_AMOUNT_OFFER" || responseType === "payment_request";
-
-            updateConversationState(session, category, classification, willRequestPayment);
-
-            const metadataForClient = parsed.metadata || {
+            let assistantContent = parsed.metadata ? (parsed.visible || '') : fullResponse;
+            let metadataForClient = parsed.metadata || {
                 user_class: category,
                 selected_strategy: 'unified_fast_fallback',
                 should_end: false,
                 classification
             };
+
+            if (category === "FULL_ACCEPTANCE" || category === "NEAR_AMOUNT_OFFER") {
+                const fixedEnding = logic.getRandomElement(logic.FULL_OR_NEAR_FAIL_ENDINGS);
+                const fixedDisplayText = typeof fixedEnding === 'object' ? fixedEnding.displayText : fixedEnding;
+                const fixedTtsText = typeof fixedEnding === 'object' ? fixedEnding.ttsText : null;
+                const prefix = assistantContent?.trim() ? '\n\n' : '';
+                const shouldAppendFixedEnding = !/한강은행|414-9193|심이싱/.test(assistantContent || '');
+
+                if (shouldAppendFixedEnding) {
+                    writeClientContent(`${prefix}${fixedDisplayText}`, fixedTtsText ? `${prefix}${fixedTtsText}` : null);
+                    assistantContent = `${assistantContent || ''}${prefix}${fixedDisplayText}`.trim();
+                }
+
+                metadataForClient = {
+                    ...metadataForClient,
+                    user_class: category,
+                    selected_strategy: 'unified_fixed_fail_full_or_near',
+                    result_type: category === "FULL_ACCEPTANCE" ? "SCAM_SUCCESS_FULL" : "SCAM_SUCCESS_NEAR",
+                    should_end: true,
+                    classification
+                };
+            }
+
+            updateConversationState(session, category, classification, willRequestPayment);
+
             writeClientContent(logic.CONFIG.METADATA_SEPARATOR + JSON.stringify(metadataForClient));
 
             if (sessionManager.isLatestTurn(session.id, turnId)) {
                 session.conversation.push({ role: 'user', content: userInput });
-                session.conversation.push({ role: 'assistant', content: parsed.visible || fullResponse });
+                session.conversation.push({ role: 'assistant', content: assistantContent });
             } else {
                 trace?.recordStep('HISTORY_SKIP_STALE_TURN', 'SUCCESS', { turnId, latestTurnId: session.latestTurnId });
             }

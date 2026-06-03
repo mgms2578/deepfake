@@ -1242,7 +1242,17 @@ class App {
                 }
             }
 
-            if (!fullContent) { loadingDiv.remove(); return; }
+            if (!fullContent) {
+                if (this.pendingScenarioEnd) {
+                    const metadata = this.pendingScenarioEnd;
+                    this.pendingScenarioEnd = null;
+                    this.setMessageTextPreservingLatency(loadingDiv, '알겠어.');
+                    setTimeout(() => this.showScenarioResult(metadata), 300);
+                } else {
+                    this.setMessageTextPreservingLatency(loadingDiv, '말이 잘 안 들려. 다시 말해줄 수 있어?');
+                }
+                return;
+            }
             this.markLatency('llm_done');
 
             if (myTurnId === this.currentTurnId) {
