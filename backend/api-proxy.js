@@ -1512,13 +1512,15 @@ app.post('/v1/chat/completions', async (req, res) => {
         }
 
         if (fixedEnding) {
+            const fixedDisplayText = typeof fixedEnding === 'object' ? fixedEnding.displayText : fixedEnding;
+            const fixedTtsText = typeof fixedEnding === 'object' ? fixedEnding.ttsText : null;
             updateConversationState(session, category, classification, false);
             if (!res.headersSent) res.writeHead(200, { 'Content-Type': 'text/event-stream' });
-            res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: fixedEnding } }] })}\n\n`);
+            res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: fixedDisplayText, ttsContent: fixedTtsText } }] })}\n\n`);
             res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: logic.CONFIG.METADATA_SEPARATOR + JSON.stringify({ user_class: category, selected_strategy: selectedStrategy, result_type: resultType, should_end: true, classification }) } }] })}\n\n`);
             if (sessionManager.isLatestTurn(sessionId, turnId)) {
                 session.conversation.push({ role: 'user', content: userInput });
-                session.conversation.push({ role: 'assistant', content: fixedEnding });
+                session.conversation.push({ role: 'assistant', content: fixedDisplayText });
             }
             res.end('data: [DONE]\n\n');
             return;

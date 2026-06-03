@@ -1201,6 +1201,7 @@ class App {
                         }
                         const content = data.choices?.[0]?.delta?.content;
                         if (content) {
+                            const ttsContent = data.choices?.[0]?.delta?.ttsContent;
                             const { visibleText, metadata } = this.parseScenarioMetadata(content);
                             if (metadata) this.handleScenarioMetadata(metadata);
                             if (!visibleText) continue;
@@ -1210,7 +1211,7 @@ class App {
                                 this.markLatency('response_llm_first_token');
                             }
                             fullContent += visibleText;
-                            updateTTSBuffer(visibleText);
+                            updateTTSBuffer(ttsContent || visibleText);
                             this.setMessageTextPreservingLatency(loadingDiv, fullContent, myTurnId);
                             if (!firstTextRendered) {
                                 firstTextRendered = true;
