@@ -609,11 +609,14 @@ function makeServerHandledResult(userInput) {
 }
 
 function hasRecentPaymentRequest(session) {
-    const recentAssistant = [...(session?.conversation || [])]
+    const recentAssistantTexts = [...(session?.conversation || [])]
         .reverse()
-        .find(item => item.role === 'assistant')?.content || '';
-    const visibleText = String(recentAssistant).split(logic.CONFIG.METADATA_SEPARATOR)[0];
-    return /(100\s*만|백\s*만|돈|송금|입금|계좌|보내|맞춰|치료비|검사비)/.test(visibleText);
+        .filter(item => item.role === 'assistant')
+        .slice(0, 6)
+        .map(item => String(item.content || '').split(logic.CONFIG.METADATA_SEPARATOR)[0]);
+    return recentAssistantTexts.some(visibleText =>
+        /(100\s*만|백\s*만|돈|송금|입금|계좌|보내|맞춰|치료비|검사비)/.test(visibleText)
+    );
 }
 
 function isContextualPaymentAcceptance(userInput, session) {
@@ -622,7 +625,7 @@ function isContextualPaymentAcceptance(userInput, session) {
     const compact = text.replace(/\s/g, '');
     if (!compact || /[?？]/.test(compact)) return false;
     if (/(못|안|싫|거절|확인|경찰|병원|전화|영상|직접|누구|왜|어디|얼마)/.test(compact)) return false;
-    return /^(응|네|어|그래|알았어|ㅇㅋ|오케이|ok|okay|보낼게|보내줄게|입금할게|송금할게|맞춰줄게|해줄게|그래알았어|응알았어|네알겠습니다|알겠어)$/i.test(compact);
+    return /^(응|네|어|그래|알았어|알았다|알겠어|알겠다|ㅇㅋ|오케이|ok|okay|보낼게|보내줄게|입금할게|송금할게|맞춰줄게|해줄게|그래알았어|그래알았다|응알았어|응알았다|네알겠습니다|알았다먹고떨어져라)$/i.test(compact);
 }
 
 function makeContextualPaymentAcceptanceResult() {

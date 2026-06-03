@@ -1065,6 +1065,7 @@ class App {
     async processUserMessage(text) {
         text = (text || '').trim();
         if (!text) return;
+        this.llmAbortController?.abort();
         this.isSending = true;
         this.activeRequestCount++;
         this.clearChatBubbleTimers();
