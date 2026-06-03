@@ -608,51 +608,32 @@ function makeServerHandledResult(userInput) {
     };
 }
 
-function hasRecentPaymentRequest(session) {
-    const recentAssistant = [...(session?.conversation || [])]
-        .reverse()
-        .find(item => item.role === 'assistant')?.content || '';
-    const visibleText = String(recentAssistant).split(logic.CONFIG.METADATA_SEPARATOR)[0];
-    return /(100\s*만|백\s*만|돈|송금|입금|계좌|보내|맞춰|치료비|검사비)/.test(visibleText);
-}
-
-function isContextualPaymentAcceptance(userInput, session) {
-    if (!hasRecentPaymentRequest(session)) return false;
+function compactUserInput(userInput) {
     const text = String(userInput || '').replace(/\s+/g, ' ').trim();
-    const compact = text.replace(/[\s.,!~。！？…]/g, '');
-    if (!compact || /[?？]/.test(compact)) return false;
-    if (/(못|안|싫|거절|확인|경찰|병원|전화|영상|직접|누구|왜|어디|얼마)/.test(compact)) return false;
-    return /^(응|네|어|그래|알았어|알았다|알겠어|알겠다|ㅇㅋ|오케이|ok|okay|보낼게|보내줄게|입금할게|송금할게|맞춰줄게|해줄게|그래알았어|그래알았다|응알았어|응알았다|네알겠습니다)$/i.test(compact);
+    return text.replace(/[\s.,!~。！？…]/g, '').toLowerCase();
 }
 
-function makeContextualPaymentAcceptanceResult() {
+function isExplicitServerPaymentAcceptance(userInput) {
+    const raw = String(userInput || '');
+    const compact = compactUserInput(raw);
+    if (!compact || /[?？]/.test(raw)) return false;
+    if (/(못|안|싫|거절|확인|경찰|병원|전화|영상|직접|누구|왜|어디|얼마|사기)/.test(compact)) return false;
+
+    const accountRequest = /(계좌줘|계좌알려줘|계좌번호줘|계좌번호알려줘|입금계좌줘|입금계좌알려줘|보낼계좌줘|보낼계좌알려줘)/.test(compact);
+    const transferCommit = /(보낼게|보내줄게|입금할게|송금할게|이체할게|돈보낼게|돈보내줄게|100만원보낼게|100만원보내줄게|100만보낼게|100만보내줄게)/.test(compact);
+    return accountRequest || transferCommit;
+}
+
+function makeExplicitPaymentAcceptanceResult(userInput) {
+    const classification = normalizeClassification({}, userInput);
+    classification.primary_intent = 'PAYMENT_OFFER';
+    classification.subtype = classification.payment?.is_account_request ? 'ACCOUNT_REQUEST' : 'EXPLICIT_PAYMENT_COMMIT';
+    classification.payment.is_payment_acceptance = true;
+    classification.payment.is_conditional = false;
+
     return {
         category: 'FULL_ACCEPTANCE',
-        classification: {
-            primary_intent: 'PAYMENT_OFFER',
-            subtype: 'CONTEXTUAL_FULL_ACCEPTANCE',
-            amounts: [],
-            payment: {
-                is_payment_acceptance: true,
-                is_account_request: false,
-                offered_amount_krw: null,
-                is_conditional: false
-            },
-            verification: {
-                identity_check: false,
-                family_secret_check: false,
-                video_call_request: false,
-                external_confirmation: false,
-                scam_suspicion: false
-            },
-            visit: {
-                wants_to_visit: false,
-                location_request: false,
-                hospital_name_question_only: false
-            },
-            is_meaningful: true,
-            confidence: 0.9
-        }
+        classification
     };
 }
 
@@ -1479,10 +1460,8 @@ app.post('/v1/chat/completions', async (req, res) => {
             return;
         }
 
-        if (isContextualPaymentAcceptance(userInput, session)) {
-            ({ category, classification } = makeContextualPaymentAcceptanceResult());
-        } else {
-            ({ category, classification } = makeServerHandledResult(userInput));
+        if (isExplicitServerPaymentAcceptance(userInput)) {
+            ({ category, classification } = makeExplicitPaymentAcceptanceResult(userInput));
         }
 
         if (category === "FULL_ACCEPTANCE") {
@@ -1512,6 +1491,9 @@ app.post('/v1/chat/completions', async (req, res) => {
         }
 
         if (fixedEnding) {
+            if (!category || !classification) {
+                ({ category, classification } = makeServerHandledResult(userInput));
+            }
             const fixedDisplayText = typeof fixedEnding === 'object' ? fixedEnding.displayText : fixedEnding;
             const fixedTtsText = typeof fixedEnding === 'object' ? fixedEnding.ttsText : null;
             updateConversationState(session, category, classification, false);
